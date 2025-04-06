@@ -721,4 +721,299 @@ plt.show()
 # 6. Verifique que el movimiento es oscilatorio, pero no armónico, a medida que $p$ sepra el valor de $6$.
 
 # %%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
+import ipywidgets as widgets
+from ipywidgets import interactive
+
+# Define the differential equation y'' = -k * y^(p-1)
+def diff_eq(x, y, k, p):
+    # y[0] = y, y[1] = y'
+    return [y[1], -k * y[0]**(p-1)]
+
+# Runge-Kutta 4th order method (RK4)
+def rk4(f, y0, x0, xf, h, k, p):
+    n = int((xf - x0) / h)
+    x = np.linspace(x0, xf, n)
+    y = np.zeros((n, len(y0)))
+    y[0] = y0
+
+    for i in range(1, n):
+        k1 = h * np.array(f(x[i-1], y[i-1], k, p))
+        k2 = h * np.array(f(x[i-1] + h/2, y[i-1] + k1/2, k, p))
+        k3 = h * np.array(f(x[i-1] + h/2, y[i-1] + k2/2, k, p))
+        k4 = h * np.array(f(x[i-1] + h, y[i-1] + k3, k, p))
+        y[i] = y[i-1] + (k1 + 2*k2 + 2*k3 + k4) / 6
+
+    return x, y
+
+# Interactive plotting
+def plot_solutions(y0, y_prime0, k, p, xf, h):
+    initial_conditions = [y0, y_prime0]  # Initial conditions [y0, y'0]
+    x0 = 0  # Starting value for x
+
+    # RK4 solver
+    x_rk4, y_rk4 = rk4(diff_eq, initial_conditions, x0, xf, h, k, p)
+
+    # RK45 solver (using scipy's solve_ivp)
+    sol_rk45 = solve_ivp(diff_eq, [x0, xf], initial_conditions, method='RK45', t_eval=x_rk4, args=(k, p))
+
+    # Plot y vs x
+    plt.figure(figsize=(12, 8))
+
+    plt.subplot(3, 1, 1)
+    plt.plot(x_rk4, y_rk4[:, 0], label="RK4 y(x)")
+    plt.plot(sol_rk45.t, sol_rk45.y[0], label="RK45 y(x)", linestyle="--")
+    plt.title("y(x) vs x")
+    plt.xlabel("x")
+    plt.ylabel("y(x)")
+    plt.legend()
+
+    # Plot y' vs x
+    plt.subplot(3, 1, 2)
+    plt.plot(x_rk4, y_rk4[:, 1], label="RK4 y'(x)")
+    plt.plot(sol_rk45.t, sol_rk45.y[1], label="RK45 y'(x)", linestyle="--")
+    plt.title("y'(x) vs x")
+    plt.xlabel("x")
+    plt.ylabel("y'(x)")
+    plt.legend()
+
+    # Phase space (y' vs y)
+    plt.subplot(3, 1, 3)
+    plt.plot(y_rk4[:, 0], y_rk4[:, 1], label="RK4 Phase space")
+    plt.plot(sol_rk45.y[0], sol_rk45.y[1], label="RK45 Phase space", linestyle="--")
+    plt.title("Phase Space (y' vs y)")
+    plt.xlabel("y")
+    plt.ylabel("y'")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+# Interactive widgets for initial conditions and parameters
+initial_conditions_widget = widgets.FloatSlider(value=1.0, min=-5.0, max=5.0, step=0.1, description='y0:')
+initial_velocity_widget = widgets.FloatSlider(value=0.0, min=-5.0, max=5.0, step=0.1, description="y'0:")
+k_widget = widgets.FloatSlider(value=1.0, min=0.01, max=10.0, step=0.1, description='k:')
+p_widget = widgets.IntSlider(value=2, min=2, max=20, step=2, description='p (even):')
+final_x_widget = widgets.FloatSlider(value=10.0, min=0.1, max=20.0, step=0.1, description="xf:")
+step_size_widget = widgets.FloatSlider(value=0.1, min=0.01, max=1.0, step=0.01, description="Step Size:")
+
+# Create the interactive plot
+interactive_plot = interactive(plot_solutions,
+                               y0=initial_conditions_widget,
+                               y_prime0=initial_velocity_widget,
+                               k=k_widget,
+                               p=p_widget,
+                               xf=final_x_widget,
+                               h=step_size_widget)
+
+# Display the interactive plot
+interactive_plot
+
+# %%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
+import ipywidgets as widgets
+from ipywidgets import interactive
+
+# Define the differential equation y'' = -k * y^(p-1)
+def diff_eq(x, y, k, p):
+    return [y[1], -k * y[0]**(p-1)]
+
+# Runge-Kutta 4th order method (RK4)
+def rk4(f, y0, x0, xf, h, k, p):
+    n = int((xf - x0) / h)
+    x = np.linspace(x0, xf, n)
+    y = np.zeros((n, len(y0)))
+    y[0] = y0
+
+    for i in range(1, n):
+        k1 = h * np.array(f(x[i-1], y[i-1], k, p))
+        k2 = h * np.array(f(x[i-1] + h/2, y[i-1] + k1/2, k, p))
+        k3 = h * np.array(f(x[i-1] + h/2, y[i-1] + k2/2, k, p))
+        k4 = h * np.array(f(x[i-1] + h, y[i-1] + k3, k, p))
+        y[i] = y[i-1] + (k1 + 2*k2 + 2*k3 + k4) / 6
+
+    return x, y
+
+# Energy function
+def energy(y, y_prime, k, p):
+    return 0.5 * y_prime**2 + (1/p) * k * y**p
+
+# Interactive plotting function
+def plot_phase_space_and_energy(y0, y_prime0, k, p, xf, h):
+    initial_conditions = [y0, y_prime0]  # Initial conditions [y0, y'0]
+    x0 = 0  # Starting value for x
+
+    # RK4 solver
+    x_rk4, y_rk4 = rk4(diff_eq, initial_conditions, x0, xf, h, k, p)
+
+    # RK45 solver (using scipy's solve_ivp)
+    sol_rk45 = solve_ivp(diff_eq, [x0, xf], initial_conditions, method='RK45', t_eval=np.linspace(x0, xf, int((xf-x0)/h)), args=(k, p))
+
+    # Calculate constant energy at t=0
+    E0 = energy(y0, y_prime0, k, p)
+
+    # Calculate energy at each time point
+    E_rk4 = energy(y_rk4[:, 0], y_rk4[:, 1], k, p)
+    E_rk45 = energy(sol_rk45.y[0], sol_rk45.y[1], k, p)
+
+    # Plot phase space (y' vs y)
+    plt.figure(figsize=(12, 8))
+
+    # Phase Space Plot
+    plt.subplot(2, 1, 1)
+    plt.plot(y_rk4[:, 0], y_rk4[:, 1], label="RK4 Phase Space")
+    plt.plot(sol_rk45.y[0], sol_rk45.y[1], label="RK45 Phase Space", linestyle="--")
+    plt.title("Phase Space (y' vs y)")
+    plt.xlabel("y")
+    plt.ylabel("y'")
+    plt.legend()
+
+    # Energy error plot
+    plt.subplot(2, 1, 2)
+    error_rk4 = np.abs(E_rk4 - E0)  # Absolute difference between energy values for RK4
+    error_rk45 = np.abs(E_rk45 - E0)  # Absolute difference between energy values for RK45
+    plt.plot(sol_rk45.t, error_rk4, label="RK4 Energy Error (E(t) - E0)")
+    plt.plot(sol_rk45.t, error_rk45, label="RK45 Energy Error (E(t) - E0)", linestyle="--")
+    plt.title("Energy Error Over Time")
+    plt.xlabel("x (time)")
+    plt.ylabel("Energy Error")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+# Interactive widgets for initial conditions and parameters
+initial_conditions_widget = widgets.FloatSlider(value=1.0, min=-5.0, max=5.0, step=0.1, description='y0:')
+initial_velocity_widget = widgets.FloatSlider(value=0.0, min=-5.0, max=5.0, step=0.1, description="y'0:")
+k_widget = widgets.FloatSlider(value=1.0, min=0.01, max=10.0, step=0.1, description='k:')
+p_widget = widgets.IntSlider(value=2, min=2, max=10, step=2, description='p (even):')
+final_x_widget = widgets.FloatSlider(value=10.0, min=0.1, max=20.0, step=0.1, description="xf:")
+step_size_widget = widgets.FloatSlider(value=0.1, min=0.01, max=1.0, step=0.01, description="Step Size:")
+
+# Create the interactive plot
+interactive_plot = interactive(plot_phase_space_and_energy,
+                               y0=initial_conditions_widget,
+                               y_prime0=initial_velocity_widget,
+                               k=k_widget,
+                               p=p_widget,
+                               xf=final_x_widget,
+                               h=step_size_widget)
+
+# Display the interactive plot
+interactive_plot
+
+# %%
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
+import ipywidgets as widgets
+from ipywidgets import interactive
+
+# Define the differential equation system
+def diff_eq_system(x, y):
+    # y[0] = y, y[1] = y'
+    return [y[1], (y[1]**2 - y[0]**2) / (2 * y[0])]
+
+# Runge-Kutta 4th order method (RK4)
+def rk4(f, y0, x0, xf, h):
+    n = int((xf - x0) / h)
+    x = np.linspace(x0, xf, n)
+    y = np.zeros((n, len(y0)))
+    y[0] = y0
+
+    for i in range(1, n):
+        k1 = h * np.array(f(x[i-1], y[i-1]))
+        k2 = h * np.array(f(x[i-1] + h/2, y[i-1] + k1/2))
+        k3 = h * np.array(f(x[i-1] + h/2, y[i-1] + k2/2))
+        k4 = h * np.array(f(x[i-1] + h, y[i-1] + k3))
+        y[i] = y[i-1] + (k1 + 2*k2 + 2*k3 + k4) / 6
+
+    return x, y
+
+# Analytical solution: y(x) = c_2 * cos^2(1/2 * (c_1 + x))
+def analytical_solution(x, c1, c2):
+    return c2 * np.cos(0.5 * (c1 + x))**2
+
+# Find c1 and c2 based on initial conditions y(0) = 1, y'(0) = 1
+def find_constants():
+    # From initial conditions
+    # y(0) = c_2 * cos^2(1/2 * c_1) = 1
+    # y'(0) = -c_2 * sin(1/2 * c_1) * cos(1/2 * c_1) = 1
+
+    # Using the second equation to solve for c_1:
+    c1 = 0.0
+    c2 = 1.0
+
+    return c1, c2
+
+# Interactive plotting
+def plot_solutions(y0, y_prime0, xf, h):
+    initial_conditions = [y0, y_prime0]  # Initial conditions [y0, y'0]
+    x0 = 0  # Starting value for x
+
+    # RK4 solver
+    x_rk4, y_rk4 = rk4(diff_eq_system, initial_conditions, x0, xf, h)
+
+    # RK45 solver (using scipy's solve_ivp)
+    sol_rk45 = solve_ivp(diff_eq_system, [x0, xf], initial_conditions, method='RK45', t_eval=x_rk4)
+
+    # Find constants for analytical solution
+    c1, c2 = find_constants()
+
+    # Calculate the analytical solution
+    y_analytical = analytical_solution(x_rk4, c1, c2)
+
+    # Plot y vs x
+    plt.figure(figsize=(12, 8))
+
+    plt.subplot(3, 1, 1)
+    plt.plot(x_rk4, y_rk4[:, 0], label="RK4 y(x)")
+    plt.plot(sol_rk45.t, sol_rk45.y[0], label="RK45 y(x)", linestyle="--")
+    plt.plot(x_rk4, y_analytical, label="Analytical y(x)", linestyle="-.")
+    plt.title("y(x) vs x")
+    plt.xlabel("x")
+    plt.ylabel("y(x)")
+    plt.legend()
+
+    # Plot y' vs x
+    plt.subplot(3, 1, 2)
+    plt.plot(x_rk4, y_rk4[:, 1], label="RK4 y'(x)")
+    plt.plot(sol_rk45.t, sol_rk45.y[1], label="RK45 y'(x)", linestyle="--")
+    plt.title("y'(x) vs x")
+    plt.xlabel("x")
+    plt.ylabel("y'(x)")
+    plt.legend()
+
+    # Phase space (y' vs y)
+    plt.subplot(3, 1, 3)
+    plt.plot(y_rk4[:, 0], y_rk4[:, 1], label="RK4 Phase space")
+    plt.plot(sol_rk45.y[0], sol_rk45.y[1], label="RK45 Phase space", linestyle="--")
+    plt.plot(y_analytical, np.gradient(y_analytical, x_rk4), label="Analytical Phase space", linestyle="-.")
+    plt.title("Phase Space (y' vs y)")
+    plt.xlabel("y")
+    plt.ylabel("y'")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+# Interactive widgets for initial conditions and parameters
+initial_conditions_widget = widgets.FloatSlider(value=1.0, min=-5.0, max=5.0, step=0.1, description='y0:')
+initial_velocity_widget = widgets.FloatSlider(value=1.0, min=-5.0, max=5.0, step=0.1, description="y'0:")
+final_x_widget = widgets.FloatSlider(value=10.0, min=0.1, max=20.0, step=0.1, description="xf:")
+step_size_widget = widgets.FloatSlider(value=0.1, min=0.01, max=1.0, step=0.01, description="Step Size:")
+
+# Create the interactive plot
+interactive_plot = interactive(plot_solutions,
+                               y0=initial_conditions_widget,
+                               y_prime0=initial_velocity_widget,
+                               xf=final_x_widget,
+                               h=step_size_widget)
+
+# Display the interactive plot
+interactive_plot
 
