@@ -1,0 +1,10 @@
+All data was collected from a reference point P, located at the bottom-left
+corner of the LEGO base.
+For P2, the video was reflected about the vertical axis, using the same reference
+point P in the video.
+
+The naming format used for the files is as follows:
+D0(VideoName)_two(same trial recorded twice)_data_P1(measured angle)
+
+Please note:
+The data collected may be affected due to camera movement during the recording.
