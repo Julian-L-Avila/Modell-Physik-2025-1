@@ -1,37 +1,28 @@
-#!/usr/bin/env bash
-set -e
-
-# measure_times.sh — mide únicamente CPU time en user mode (%U)
-
+#!/bin/bash
+# measure_times.sh - mide tiempo de ejecución (user) para Fortran diffinita.f90
 METRIC_FLAG="%U"
 METRIC_NAME="user"
-
-# Archivos y ejecutables
-PY=diffinita.py
-M=diffinita.m
-C_SRC=diffinita.c;    C_EXE=diffinita_c
-F_SRC=diffinita.f90;  F_EXE=diffinita_f90
-
-# Compilación
-gcc -O2 -lm $C_SRC -o $C_EXE
-gfortran -O2 $F_SRC -o $F_EXE
-
+FEXE=diffinita_exe
 OUT=times.csv
-echo "N,time_py_$METRIC_NAME,time_matlab_$METRIC_NAME,time_c_$METRIC_NAME,time_f90_$METRIC_NAME" > $OUT
 
-measure(){
-  local t=$(/usr/bin/time -f "$METRIC_FLAG" "$@" 1>/dev/null 2>&1)
-  echo "${t//,/\.}"
-}
+# Compilar el programa
+gfortran diffinita.f90 -o $FEXE
 
-for N in $(seq 5 5 50); do
-  printf "N=%2d  " $N
-  t_py=$( measure python3 $PY $N )
-  t_mat=$( measure matlab -nodisplay -r "N=$N;run('$M');exit" )
-  t_c=$(   measure ./$C_EXE  $N )
-  t_f=$(   measure ./$F_EXE  $N )
-  printf " py=%6s  m=%6s  c=%6s  f90=%6s\n" "$t_py" "$t_mat" "$t_c" "$t_f"
-  echo "$N,$t_py,$t_mat,$t_c,$t_f" >> $OUT
+# Cabecera del CSV
+echo "N,time_f90_$METRIC_NAME" > "$OUT"
+
+# Barrido de N
+for N in $(seq 5 5 50) $(seq 60 10 100) $(seq 125 25 200); do
+    # Ejecutar el solver con malla N y capturar tiempo user
+    # Usar el comando time sin ruta absoluta
+    t_user=$(time -f "$METRIC_FLAG" ./$FEXE $N 2>&1 >/dev/null)
+    
+    # Normalizar coma a punto
+    t_user=${t_user//,/.}
+    
+    # Mostrar por pantalla y escribir en CSV
+    printf "N=%4d tiempo=%s s\n" "$N" "$t_user"
+    echo "$N,$t_user" >> "$OUT"
 done
 
-echo "¡Listo! resultados en $OUT (metric: $METRIC_NAME)"
+echo "Resultados almacenados en $OUT (métrica: $METRIC_NAME)"
