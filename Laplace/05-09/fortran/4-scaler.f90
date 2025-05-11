@@ -112,7 +112,7 @@ SUBROUTINE initialize_grid_and_boundaries(Nx,Ny,h,xmin,ymin,Lx,Ly,is_boundary,ph
      if (x <= 0.0d0 .or. (4.0d0 * x) <= 0.0d0) then
         phi(i,Ny) = 0.0d0 ! Or handle error
      else
-        phi(i,Ny) = 2.0d0 * x * log(4.0d0 * x)
+        phi(i,Ny) = 2.0d0 * x * log(2.0d0 * x)
      endif
   enddo
 

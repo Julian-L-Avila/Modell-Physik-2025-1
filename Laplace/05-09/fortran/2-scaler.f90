@@ -128,7 +128,7 @@ SUBROUTINE red_inicial_laplace_shifted(Nx,Ny,h,xmin,ymin,conductor,rho,phi)
   do i=0,Nx
      x = xmin + i * h
      ! V(x, 1) = log(x^2) + 4
-     phi(i,Ny) = log(x**2) + 4.0d0
+     phi(i,Ny) = log(x**2 + 1.0d0)
   enddo
 
   ! Frontera derecha (x=xmin+Lx): V(xmin+Lx,y) = ln(y^2 + 4)
