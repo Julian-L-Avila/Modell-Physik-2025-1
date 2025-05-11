@@ -1,270 +1,228 @@
-! Este programa resuelve la ecuación de Poisson bidimensional
-! en un dominio cuadrado de Lx*Ly con condiciones de frontera Dirichlet.
-! Utiliza el método de relajación Gauss-Seidel.
-!
-! Se usa un tamanio de paso h constante, por lo que el tamanio del dominio
-! Lx, Ly cambia con el numero de intervalos N (Lx = N*h).
-!
-! Ecuacion: laplacian(V) = (x^2 + y^2) * exp(xy)
-! Fronteras: V(0,y)=1, V(x,0)=1, V(Lx,y)=exp(2y), V(x,Ly)=exp(x)
-! (Note: Boundary conditions now depend on the changing domain size Lx, Ly)
-
-PROGRAM Poisson2D_Scaler
+PROGRAM Poisson2D_ShiftedDomain
   implicit none
   ! Declaración de variables
   real(8),parameter::PI=3.141592653589793d0 ! Valor de pi con doble precisión
-  real(8),parameter::h = 0.01d0          ! <-- CONSTANTE: Tamanio del paso de la grilla
-  integer::Nx,Ny                      ! Número de intervalos en la grilla en direcciones X e Y (= N)
-  real(8),allocatable::phi(:,:),rho(:,:) ! Matriz de potencial (phi) y término fuente discretizado (rho)
-  real(8)::eps                         ! Criterio de convergencia para la relajación
-  real(8)::Lx,Ly                      ! Dimensiones del dominio rectangular (cambian con N)
-  ! real(8)::area                      ! No directamente relevante para este Poisson
+  ! Parametros fijos
+  integer,parameter::Nx = 100        ! Número de intervalos en X
+  integer,parameter::Ny = 50        ! Número de intervalos en Y (para Lx=1, Ly=1 => Nx=Ny para hx=hy)
+  real(8),parameter::eps = 1.0d-7     ! Criterio de convergencia para la relajación
 
-  logical,allocatable::conductor(:,:) ! Matriz booleana para identificar puntos conductores (fronteras)
+  real(8),allocatable::phi(:,:),rho(:,:) ! Matriz de potencial (phi) y término fuente (rho)
+  real(8)::Lx,Ly                     ! Dimensiones del dominio rectangular (tamaño)
+  real(8)::xmin, ymin                  ! Coordenadas del origen del dominio
+  real(8)::h                         ! Tamaño del paso de la grilla (asumimos hx=hy)
 
-  ! --- Información de la grilla (N intervalos = N+1 puntos) ---
+  logical,allocatable::is_boundary(:,:) ! Matriz booleana para identificar puntos de frontera
+
+  ! --- Datos del problema ---
+  xmin = 0.0d0  ! Coordenada minima en X
+  ymin = 0.0d0  ! Coordenada minima en Y
+  Lx = 2.0d0    ! Longitud del dominio en X (xmax = xmin + Lx = 2.0)
+  Ly = 1.0d0    ! Longitud del dominio en Y (ymax = ymin + Ly = 2.0)
+
+  ! Calcular tamaño de paso h (asumiendo grilla cuadrada hx=hy)
+  if (abs(Lx/real(Nx,kind=8) - Ly/real(Ny,kind=8)) > 1.0d-9) then
+     write(6,*) "Error: La grilla no es cuadrada con Nx, Ny, Lx, Ly dados."
+     write(6,*) "Lx/Nx =", Lx/real(Nx,kind=8), " Ly/Ny =", Ly/real(Ny,kind=8)
+     write(6,*) "Para una grilla cuadrada con Lx=", Lx, ", Ly=", Ly, " y Nx=", Nx
+     write(6,*) "Ny deberia ser ", int(Ly/Lx * Nx)
+     stop "Detenido debido a tamanio de grilla no cuadrada."
+  endif
+  h = Lx / real(Nx, kind=8)
+
   write(6,*)'-------------------------------------------------------'
   write(6,*)' Resolviendo la ecuacion de Poisson bidimensional'
-  write(6,*)' Usando un tamanio de paso h = ', h
-  write(6,*)' Ingrese el numero de intervalos en la grilla (N):'
-  read(5,*)Nx
-  Ny = Nx ! Dominio cuadrado N x N intervalos = (N+1) x (N+1) puntos
-
-  ! Calcular el tamaño del dominio basado en N y h constante
-  Lx = real(Nx, kind=8) * h
-  Ly = real(Ny, kind=8) * h
-
-  write(6,"(a,i4,' X ',i4)")' N intervalos en la grilla: ',Nx,Ny
-  write(6,"(a,f10.5)")' Tamanio del dominio Lx = ', Lx
-  write(6,"(a,f10.5)")' Tamanio del dominio Ly = ', Ly
-  write(6,*)' Condiciones de frontera Dirichlet:'
-  write(6,"(a)")'  V = 1        en x = 0'
-  write(6,"(a)")'  V = 1        en y = 0'
-  write(6,"(a,f10.5,a)")'  V = exp(2y)  en x = Lx = ', Lx
-  write(6,"(a,f10.5,a)")'  V = exp(x)   en y = Ly = ', Ly
+  write(6,"(a,f6.2,a,f6.2,a,f6.2,a,f6.2)")' Dominio: [', xmin, ',', xmin+Lx, '] x [', ymin, ',', ymin+Ly, ']'
+  write(6,"(a,i4,' X ',i4)")' Puntos en la grilla: ',Nx+1,Ny+1
+  write(6,"(a,f10.5)")' Tamanio de paso h = ', h
+  write(6,"(a,f10.7)")' Criterio de convergencia eps = ', eps
   write(6,*)'-------------------------------------------------------'
 
+  allocate(phi(0:Nx,0:Ny), rho(0:Nx,0:Ny), is_boundary(0:Nx,0:Ny))
 
-  ! --- Asignar memoria para las matrices (N+1 x N+1 puntos) ---
-  allocate(phi(0:Nx,0:Ny), rho(0:Nx,0:Ny), conductor(0:Nx,0:Ny))
-
-  ! Inicializar matrices a cero
   phi = 0.d0
-  rho = 0.d0 ! rho se usará para el término fuente (x^2+y^2)exp(xy) en el interior
+  is_boundary = .FALSE.
+  rho = 0.d0
 
-  ! --- Precision para la convergencia ---
-  write(6,*)' Precision requerida para la convergencia (eps)? (Ej: 1e-6)'
-  read(5,*)eps
+  call initialize_grid_and_boundaries(Nx, Ny, h, xmin, ymin, Lx, Ly, is_boundary, phi, rho)
 
-  ! --- Inicializa la red, aplica condiciones de frontera y establece el término fuente ---
-  ! Pasamos Lx y Ly ya que las condiciones de frontera dependen del tamaño del dominio
-  call red_inicial_poisson_scaler(Nx, Ny, h, Lx, Ly, conductor, rho, phi)
+  call Poisson_Solver(Nx, Ny, h, eps, is_boundary, rho, phi)
 
-  ! --- Calcula la ecuación de Poisson iterativamente (Gauss-Seidel) ---
-  ! Ahora rho contiene el término fuente, asi que resuelve la ecuacion de Poisson completa.
-  call Poisson_Solver_hconst(Nx, Ny, h, eps, conductor, rho, phi)
+  call save_results(Nx, Ny, h, xmin, ymin, phi)
 
-  ! --- Guarda resultados ---
-  ! No necesitamos pasar Lx, Ly ya que la escritura solo usa indices y h
-  call guardar_poisson_scaler(Nx, Ny, h, phi)
+  deallocate(phi, rho, is_boundary)
 
-  ! --- Liberar memoria ---
-  deallocate(phi, rho, conductor)
-
-END PROGRAM Poisson2D_Scaler
+END PROGRAM Poisson2D_ShiftedDomain
 
 !****************************************************************
 ! Subrutina para inicializar la red, aplicar condiciones de frontera
-! variables (que dependen del tam. del dominio) y establecer el término fuente.
-SUBROUTINE red_inicial_poisson_scaler(Nx,Ny,h,Lx,Ly,conductor,rho,phi)
+! y establecer el término fuente rho(x,y).
+!****************************************************************
+SUBROUTINE initialize_grid_and_boundaries(Nx,Ny,h,xmin,ymin,Lx,Ly,is_boundary,phi,rho)
   implicit none
-  ! Argumentos de entrada
   integer,INTENT(IN)::Nx,Ny
-  real(8),INTENT(IN)::h, Lx, Ly ! h es constante, Lx, Ly dependen de N
-
-  ! Argumentos de salida e entrada/salida
-  real(8),dimension(0:Nx,0:Ny),INTENT(OUT)::rho,phi
-  logical,dimension(0:Nx,0:Ny),INTENT(OUT)::conductor
-
-  ! Variables locales
+  real(8),INTENT(IN)::h, xmin, ymin, Lx, Ly
+  real(8),dimension(0:Nx,0:Ny),INTENT(OUT)::phi,rho
+  logical,dimension(0:Nx,0:Ny),INTENT(OUT)::is_boundary
   integer::i,j
-  real(8)::x,y                       ! Coordenadas físicas
+  real(8)::x,y
+  real(8)::xmax, ymax
 
-  ! Inicializa todas las celdas con potencial 0 y no conductoras, rho a 0
+  xmax = xmin + Lx
+  ymax = ymin + Ly
+
   phi = 0.d0
-  conductor = .FALSE.
-  rho = 0.d0 ! Inicializamos rho a 0, luego calcularemos el término fuente en el interior
+  rho = 0.d0
+  is_boundary = .FALSE.
 
-  ! --- Ponemos las condiciones de frontera (marcadas como conductores) ---
-  ! Los puntos en la frontera son "conductores" en el sentido de que su potencial es fijo.
-  conductor(:,0) = .TRUE.  ! Lado inferior (y=0)
-  conductor(:,Ny) = .TRUE. ! Lado superior (y=Ly)
-  conductor(0,:) = .TRUE.  ! Lado izquierdo (x=0)
-  conductor(Nx,:) = .TRUE. ! Lado derecho (x=Lx)
+  is_boundary(:,0) = .TRUE.   ! Lado inferior (y=ymin)
+  is_boundary(:,Ny) = .TRUE.  ! Lado superior (y=ymax)
+  is_boundary(0,:) = .TRUE.   ! Lado izquierdo (x=xmin)
+  is_boundary(Nx,:) = .TRUE.  ! Lado derecho (x=xmax)
 
-  ! --- Asignar potenciales fijos en las fronteras (usando las nuevas condiciones) ---
-  ! Frontera inferior (y=0): V(x,0) = 1
   do i=0,Nx
-     phi(i,0) = 1.0d0
+     x = xmin + i * h
+     if (x <= 0.0d0) then
+        phi(i,0) = 0.0d0 ! Or handle error; with xmin=1, x is always > 0
+     else
+        phi(i,0) = 1.0d0
+     endif
   enddo
 
-  ! Frontera izquierda (x=0): V(0,y) = 1
   do j=0,Ny
-     phi(0,j) = 1.0d0
+     y = ymin + j * h
+     if (y <= 0.0d0) then
+        phi(0,j) = 0.0d0 ! Or handle error; with ymin=1, y is always > 0
+     else
+        phi(0,j) = 1.0d0
+     endif
   enddo
 
-  ! Frontera superior (y=Ly): V(x,Ly) = exp(x)
   do i=0,Nx
-     x = i * h
-     ! La condicion es V(x, Ly) = exp(x)
-     phi(i,Ny) = exp(x)
+     x = xmin + i * h
+     if (x <= 0.0d0 .or. (4.0d0 * x) <= 0.0d0) then
+        phi(i,Ny) = 0.0d0 ! Or handle error
+     else
+        phi(i,Ny) = exp(x)
+     endif
   enddo
 
-  ! Frontera derecha (x=Lx): V(Lx,y) = exp(2y)
   do j=0,Ny
-     y = j * h
-     ! La condicion es V(Lx, y) = exp(2y)
-     phi(Nx,j) = exp(2.0d0 * y)
+     y = ymin + j * h
+     if (y <= 0.0d0 .or. (2.0d0 * y) <= 0.0d0) then
+        phi(Nx,j) = 0.0d0 ! Or handle error
+     else
+        phi(Nx,j) = exp(2 * y)
+     endif
   enddo
 
-  ! NOTA: La consistencia de las condiciones de frontera en las esquinas
-  ! depende de la funcion de frontera en el punto (Lx, Ly).
-  ! V(Lx, Ly) deberia ser exp(Lx) Y exp(2*Ly). Como Lx=Ly=N*h,
-  ! V(N*h, N*h) deberia ser exp(N*h) Y exp(2*N*h). Esto solo es consistente
-  ! si exp(N*h) = exp(2*N*h), lo cual solo ocurre si N*h=0, o si el problema
-  ! no requiere consistencia exacta en la esquina (que es comun en problemas numericos).
-  ! El codigo actual asigna V(Lx,Ly) con exp(Lx) y exp(2*Ly) sucesivamente,
-  ! quedando con el ultimo valor asignado.
-
-  ! --- Establecer el término fuente (x^2 + y^2) * exp(xy) en el interior ---
-  ! rho(i,j) en la fórmula discretizada corresponde a f(x_i, y_j)
-  do i=1,Nx-1
-     do j=1,Ny-1
-        x = i * h
-        y = j * h
-        rho(i,j) = (x**2 + y**2) * exp(x * y)
-     enddo
+  ! Establecer el término fuente rho(x,y) = x/y + y/x para puntos interiores
+  ! Rho en las fronteras no se usa en la actualización de Gauss-Seidel para phi,
+  ! pero definimos rho(i,j) para todos los puntos.
+  do i=0,Nx
+    x = xmin + i * h
+    do j=0,Ny
+      y = ymin + j * h
+      ! Con xmin=1, ymin=1, x e y siempre serán >= 1, so y no será cero.
+      ! No es necesario un chequeo de y == 0.0d0 aquí con el dominio actual.
+      if (is_boundary(i,j)) then
+          rho(i,j) = 0.0d0 ! O el valor de x/y+y/x, aunque no se use. Cero es más limpio.
+      else
+          if (abs(y) < 1.0d-12 .or. abs(x) < 1.0d-12) then ! General safety for division
+             rho(i,j) = 1.0d+20 ! Large number to indicate issue if it somehow occurs
+             write(*,*) "Warning: x or y is near zero for rho calc at interior: ", x, y
+          else
+             rho(i,j) = (x*x + y*y) * exp(x * y)
+          endif
+      endif
+    enddo
   enddo
 
-END SUBROUTINE red_inicial_poisson_scaler
+END SUBROUTINE initialize_grid_and_boundaries
 
 !****************************************************************
-! Subrutina para resolver la ecuación de Poisson (o Laplace si rho=0)
+! Subrutina para resolver la ecuación de Poisson
 ! usando el método de relajación Gauss-Seidel.
-! Usa h constante.
-SUBROUTINE Poisson_Solver_hconst(Nx,Ny,h,eps,conductor,rho,phi)
+!****************************************************************
+SUBROUTINE Poisson_Solver(Nx,Ny,h,eps,is_boundary,rho,phi)
   implicit none
-  ! Argumentos de entrada
   integer,INTENT(IN)::Nx,Ny
-  real(8),INTENT(IN)::h            ! Tamaño del paso (constante)
-  real(8),INTENT(IN)::eps          ! Criterio de convergencia
-
-  ! Argumentos de entrada (sus valores no cambian en el interior)
-  logical,dimension(0:Nx,0:Ny),INTENT(IN)::conductor
-  real(8),dimension(0:Nx,0:Ny),INTENT(IN)::rho ! rho es entrada (contiene el término fuente)
-
-  ! Argumentos de entrada/salida (el potencial se actualiza)
+  real(8),INTENT(IN)::h
+  real(8),INTENT(IN)::eps
+  logical,dimension(0:Nx,0:Ny),INTENT(IN)::is_boundary
+  real(8),dimension(0:Nx,0:Ny),INTENT(IN)::rho
   real(8),dimension(0:Nx,0:Ny),INTENT(INOUT)::phi
+  integer::i,j,iter_count
+  real(8)::phi_new_ij, max_error, dphi
+  integer,parameter::max_iter=1000000
+  ! Opcional: Parámetro de relajación para SOR (Successive Over-Relaxation)
+  ! real(8), parameter :: omega = 1.8d0 ! Típicamente 1 < omega < 2
 
-  ! Variables locales
-  integer::i,j,iconteo              ! Contadores
-  real(8)::phi_ij                   ! Nuevo valor calculado para phi(i,j)
-  real(8)::error                    ! Error máximo en una iteración
-  real(8)::dphi                     ! Cambio en el potencial de una celda en una iteración
-  integer,parameter::max_iter=1000000 ! Límite máximo de iteraciones
+  iter_count = 0
 
-  iconteo = 0 ! Inicializar contador de iteraciones
-
-  ! Bucle principal de iteración
   do while (.TRUE.)
-    error = 0.d0 ! Reiniciar el error máximo para esta iteración
+     max_error = 0.d0
 
-    ! Iterar sobre los puntos interiores de la grilla
-    do i=1,Nx-1
-      do j=1,Ny-1
-        ! Cambiamos el potencial solo para los puntos que no son conductores (el interior)
-        if(.NOT.conductor(i,j))then
-          ! Fórmula de actualización de Gauss-Seidel para la ecuación de Poisson:
-          ! V_i,j = 0.25 * Sum(Vecinos) - 0.25 * h^2 * f_i,j
-          ! En este código, rho(i,j) = f_i,j
-          phi_ij = 0.25d0 * (phi(i+1,j) + phi(i-1,j) + phi(i,j+1) + phi(i,j-1)) &
-                 - 0.25d0 * (h**2) * rho(i,j)
+     do j=1,Ny-1 ! Iterar sobre y (columnas)
+        do i=1,Nx-1 ! Iterar sobre x (filas)
+           if(.NOT.is_boundary(i,j))then
+              phi_new_ij = 0.25d0 * (phi(i+1,j) + phi(i-1,j) + &
+                                     phi(i,j+1) + phi(i,j-1) - h**2 * rho(i,j))
 
-          ! Calcular el cambio absoluto en el potencial para este punto
-          dphi = abs(phi(i,j) - phi_ij)
+              ! --- Opcional: Successive Over-Relaxation (SOR) ---
+              ! phi_new_ij = (1.0d0 - omega) * phi(i,j) + omega * phi_new_ij
+              ! --- Fin SOR ---
 
-          ! Actualizar el error máximo si este cambio es mayor
-          if(error .lt. dphi) error = dphi
+              dphi = abs(phi(i,j) - phi_new_ij)
+              if(max_error < dphi) max_error = dphi
+              phi(i,j) = phi_new_ij
+           endif
+        enddo
+     enddo
 
-          ! Actualizar el potencial en este punto con el nuevo valor (Gauss-Seidel)
-          phi(i,j) = phi_ij
-        endif
-      enddo
-    enddo
+     iter_count = iter_count + 1
 
-    iconteo = iconteo + 1 ! Incrementar el contador de iteraciones
-
-    ! Criterio de salida: si el error máximo es menor que la precisión requerida
-    if(error .lt. eps) exit
-
-    ! Límite de iteraciones para evitar bucles infinitos en caso de no convergencia
-    if(iconteo > max_iter) then
-        write(6,*) 'Advertencia: Máximo número de iteraciones (', max_iter, ') alcanzado antes de la convergencia.'
-        write(6,*) 'Error maximo final = ',error
+     if(max_error < eps) exit
+     if(iter_count > max_iter) then
+        write(6,*) 'Advertencia: Maximo numero de iteraciones (', max_iter, ') alcanzado.'
+        write(6,*) 'Error maximo final = ',max_error
         exit
-    end if
+     end if
+     ! if (mod(iter_count, 500) == 0) then ! Descomentar para ver progreso
+     !    write(6,"(a,i8,a,e12.5)") "Iter:", iter_count, " Max Error:", max_error
+     ! endif
+  enddo
 
-  enddo ! Fin del bucle principal de iteración
+  write(6,*)' Iteraciones para converger: ',iter_count,' Error maximo final = ',max_error
 
-  write(6,*)' Iteraciones para converger: ',iconteo,' Error maximo final = ',error
-
-END SUBROUTINE Poisson_Solver_hconst
+END SUBROUTINE Poisson_Solver
 
 !****************************************************************
 ! Subrutina para guardar los resultados numéricos de la solución de Poisson.
-! La comparación con la solución analítica se ha removido.
-SUBROUTINE guardar_poisson_scaler(Nx,Ny,h,phi)
+!****************************************************************
+SUBROUTINE save_results(Nx,Ny,h,xmin,ymin,phi)
   implicit none
-  ! Argumentos de entrada
-  integer,INTENT(IN)::Nx,Ny             ! Dimensiones de la grilla (N intervalos)
-  real(8),INTENT(IN)::h                 ! Tamaño del paso de la grilla (constante)
-
-  ! Argumento de entrada (la matriz de potencial calculada)
+  integer,INTENT(IN)::Nx,Ny
+  real(8),INTENT(IN)::h, xmin, ymin
   real(8),dimension(0:Nx,0:Ny),INTENT(IN)::phi
+  integer::i,j
+  real(8)::x,y
+  integer, parameter :: out_unit = 11 ! Usar una unidad de archivo > 10
 
-  ! Variables locales
-  integer::i,j                       ! Contadores
-  real(8)::x,y                         ! Coordenadas físicas
+  open(unit=out_unit, file="data_poisson_shifted.txt", status="replace")
 
-  ! Abrir archivo para guardar los datos
-  ! unit=1 es un número de unidad de archivo, file="data_poisson.txt" es el nombre del archivo
-  ! Cambiamos el nombre para cada N
-  character(len=30) :: filename
-  write(filename, '(a,i5.5,a)') 'data_poisson_N', Nx, '.txt'
+  write(out_unit, '("# x y Potential(numerical)")')
 
-  open(unit=1,file=filename, status="replace") ! status="replace" sobrescribe si existe
-
-  ! Escribir una línea de encabezado en el archivo (opcional, útil para gnuplot)
-  write(1, '("# x y Potential(numerical)")')
-
-  ! Iterar sobre todos los puntos de la grilla (incluyendo fronteras)
-  do i=0,Nx
-    do j=0,Ny
-      ! Calcular coordenadas físicas (x, y)
-      x = i * h
-      y = j * h
-
-      ! --- Escribir los datos en el archivo ---
-      ! Formato: x, y, Potencial Numérico
-      write(1,"(2(F10.5,1x),F15.7)")x, y, phi(i,j)
-    enddo
-    ! Escribir una línea en blanco después de cada fila de la grilla para gnuplot (splot)
-    write(1,*)
+  do j=0,Ny ! Gnuplot prefiere que las 'y' varíen más lentamente para splot pm3d
+     do i=0,Nx
+        x = xmin + i * h
+        y = ymin + j * h
+        write(out_unit,"(2(F12.6,1x),F17.9)")x, y, phi(i,j)
+     enddo
+     write(out_unit,*) ! Línea en blanco para Gnuplot splot
   enddo
 
-  ! Cerrar el archivo
-  close(unit=1)
+  close(unit=out_unit)
+  write(6,*)' Resultados guardados en data_poisson_shifted.txt'
 
-  write(6,"(a,a)")' Resultados guardados en ', trim(filename)
-
-END SUBROUTINE guardar_poisson_scaler
+END SUBROUTINE save_results

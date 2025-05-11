@@ -7,12 +7,6 @@
 ! hx = Lx/Nx, hy = Ly/Ny. Asumimos grilla cuadrada hx = hy = h.
 ! Para Lx=1, Ly=2 y Nx=100, necesitamos Ny=200 para hx=hy.
 !
-! Condiciones de frontera Dirichlet:
-! V(1,y) = y^2        (x=1, izquierda)
-! V(2,y) = (y - 1)^2  (x=2, derecha)
-! V(x,0) = x^2        (y=0, inferior)
-! V(x,2) = (x - 2)^2  (y=2, superior)
-!
 ! Termino fuente (rho):
 ! rho(x,y) = 4 en el interior del dominio.
 
@@ -21,7 +15,7 @@ PROGRAM Poisson2D_ShiftedDomain
   ! Declaración de variables
   real(8),parameter::PI=3.141592653589793d0 ! Valor de pi con doble precisión
   ! Parametros fijos
-  integer,parameter::Nx = 100           ! Número de intervalos en X
+  integer,parameter::Nx = 200           ! Número de intervalos en X
   integer,parameter::Ny = 200           ! Número de intervalos en Y (Ajustado para grilla cuadrada con Lx=1, Ly=2)
   real(8),parameter::eps = 1.0d-7       ! Criterio de convergencia para la relajación
 
@@ -34,9 +28,9 @@ PROGRAM Poisson2D_ShiftedDomain
   logical,allocatable::conductor(:,:) ! Matriz booleana para identificar puntos conductores (fronteras)
 
   ! --- Datos del problema (fijos para este caso específico) ---
-  xmin = 1.0d0   ! Coordenada minima en X
+  xmin = 0.0d0   ! Coordenada minima en X
   ymin = 0.0d0   ! Coordenada minima en Y
-  Lx = 2.0d0 - xmin ! Longitud del dominio en X (2-1 = 1)
+  Lx = 2.0d0 - xmin ! Longitud del dominio en X (2-0 = 2)
   Ly = 2.0d0 - ymin ! Longitud del dominio en Y (2-0 = 2)
 
   ! Calcular tamaño de paso h (asumiendo grilla cuadrada hx=hy)
@@ -58,7 +52,7 @@ PROGRAM Poisson2D_ShiftedDomain
   write(6,"(a,f5.1)")' Termino fuente rho = ', source_rho
   write(6,*)' Condiciones de frontera Dirichlet:'
   write(6,"(a)")'  V(1,y) = y^2'
-  write(6,"(a)")'  V(2,y) = (y - 1)^2'
+  write(6,"(a)")'  V(2,y) = (y - 2)^2'
   write(6,"(a)")'  V(x,0) = x^2'
   write(6,"(a)")'  V(x,2) = (x - 2)^2'
   write(6,*)'-------------------------------------------------------'
@@ -145,7 +139,7 @@ SUBROUTINE red_inicial_poisson_shifted(Nx,Ny,h,xmin,ymin,conductor,phi,source_rh
   ! Frontera derecha (x=xmin+Lx=2): V(2,y) = (y - 1)^2
   do j=0,Ny
      y = ymin + j * h
-     phi(Nx,j) = (y - 1.0d0)**2
+     phi(Nx,j) = (y - 2.0d0)**2
   enddo
 
   ! NOTA: Verificar la consistencia de las condiciones de frontera en las esquinas:
@@ -253,7 +247,7 @@ SUBROUTINE guardar_poisson_shifted(Nx,Ny,h,xmin,ymin,phi)
 
   ! Abrir archivo para guardar los datos
   ! unit=1 es un número de unidad de archivo, file="data_poisson_shifted.txt"
-  open(unit=1,file="data_poisson_shifted.txt", status="replace") ! status="replace" sobrescribe si existe
+  open(unit=1,file="./data_poisson-03-fortran.txt", status="replace") ! status="replace" sobrescribe si existe
 
   ! Escribir una línea de encabezado en el archivo (opcional, útil para gnuplot)
   write(1, '("# x y Potential(numerical)")')
@@ -276,6 +270,6 @@ SUBROUTINE guardar_poisson_shifted(Nx,Ny,h,xmin,ymin,phi)
   ! Cerrar el archivo
   close(unit=1)
 
-  write(6,*)' Resultados guardados en data_poisson_shifted.txt'
+  write(6,*)' Resultados guardados en ./data_poisson-03-fortran.txt'
 
 END SUBROUTINE guardar_poisson_shifted

@@ -6,11 +6,6 @@
 ! Dominio: Lx=1, Ly=1 (de x=1 a x=2, y=0 a y=1).
 ! hx = Lx/Nx, hy = Ly/Ny.
 !
-! Condiciones de frontera Dirichlet:
-! V(1,y) = ln(y^2 + 1)     (x=1, izquierda)
-! V(2,y) = ln(y^2 + 4)     (x=2, derecha)
-! V(x,0) = 2 * ln(x)       (y=0, inferior)
-! V(x,1) = ln(x^2) + 4     (y=1, superior)
 
 PROGRAM Laplace2D_ShiftedDomain
   implicit none
@@ -49,11 +44,6 @@ PROGRAM Laplace2D_ShiftedDomain
   write(6,"(a,i4,' X ',i4)")' Puntos en la grilla: ',Nx+1,Ny+1
   write(6,"(a,f10.5)")' Tamanio de paso h = ', h
   write(6,"(a,f10.7)")' Criterio de convergencia eps = ', eps
-  write(6,*)' Condiciones de frontera Dirichlet:'
-  write(6,"(a)")'  V(1,y) = ln(y^2 + 1)'
-  write(6,"(a)")'  V(2,y) = ln(y^2 + 4)'
-  write(6,"(a)")'  V(x,0) = 2 * ln(x)'
-  write(6,"(a)")'  V(x,1) = ln(x^2) + 4'
   write(6,*)'-------------------------------------------------------'
 
   ! --- Asignar memoria para las matrices (Nx+1 x Ny+1 puntos) ---
