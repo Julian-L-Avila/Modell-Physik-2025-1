@@ -1,0 +1,9 @@
+# N_intervals Real_Time(s)
+1	Fortran	100 0.686
+1	Python	100 91.495
+2	Fortran	100 1.286
+2	Python	100 93.352
+3	Fortran	100 4.577
+3	Python	100 79.064
+4	Fortran	100	1.478
+4	Python	100 84.873
