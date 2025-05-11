@@ -139,8 +139,8 @@ def save_results(Nx, Ny, h, xmin, ymin, phi, filename="data_poisson-03-python.tx
 # --- Main script execution ---
 if __name__ == "__main__":
     # Fixed Parameters
-    Nx = 200  # Number of intervals in X
-    Ny = 200  # Number of intervals in Y (for Lx=1, Ly=1 => Nx=Ny for hx=hy)
+    Nx = 100  # Number of intervals in X
+    Ny = 100  # Number of intervals in Y (for Lx=1, Ly=1 => Nx=Ny for hx=hy)
     eps = 1.0e-7  # Convergence criterion
 
     # Domain definition

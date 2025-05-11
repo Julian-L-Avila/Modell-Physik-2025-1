@@ -15,8 +15,8 @@ PROGRAM Poisson2D_ShiftedDomain
   ! Declaración de variables
   real(8),parameter::PI=3.141592653589793d0 ! Valor de pi con doble precisión
   ! Parametros fijos
-  integer,parameter::Nx = 200           ! Número de intervalos en X
-  integer,parameter::Ny = 200           ! Número de intervalos en Y (Ajustado para grilla cuadrada con Lx=1, Ly=2)
+  integer,parameter::Nx = 100           ! Número de intervalos en X
+  integer,parameter::Ny = 100           ! Número de intervalos en Y (Ajustado para grilla cuadrada con Lx=1, Ly=2)
   real(8),parameter::eps = 1.0d-7       ! Criterio de convergencia para la relajación
 
   real(8),allocatable::phi(:,:),rho(:,:) ! Matriz de potencial (phi) y término fuente (rho=4)
