@@ -162,7 +162,6 @@ int main(int argc, char *argv[]) {
     fprintf(fp, "%10.5f %10.5f\n", xf, vf);
     fclose(fp);
 
-    printf("Resultados guardados en %s\n", filename);
 
     // Free allocated memory
     if (A != NULL) {

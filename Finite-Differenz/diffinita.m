@@ -3,15 +3,17 @@
 % xi <= U <= xf
 % U(xi) = vi y U(xf) = vf
 
-function [A, b, x] = diffinita(n)
+function diffinita(N_interior)
     xi = -1;          % Inicio de dominio
     xf = 2;           % Fin de dominio
     vi = -1;          % Valor en la frontera xi
     vf = 1;           % Valor en la frontera xf
-    N = n - 2;        % Nodos interiores
+    N = N_interior;   % Nodos interiores
+    n = N + 2;        % Número total de nodos
     h = (xf - xi) / (n - 1);  % Incremento en la malla
     A = zeros(N, N);     % Matriz A
     b = zeros(N, 1);     % Vector b
+    x = zeros(N, 1);     % Vector de solución inicial
 
     R = 1 / (h^2);
     P = -2 / (h^2);
@@ -19,50 +21,45 @@ function [A, b, x] = diffinita(n)
 
     % Primer renglón de la matriz A y vector b
     A(1, 1) = P;
-    A(1, 2) = Q;
-    b(1) = LadoDerecho(xi) - vi * R;
+    if N > 1
+        A(1, 2) = Q;
+    end
+    b(1) = LadoDerecho(xi + h) - vi * R; % Ajuste del punto para el lado derecho
 
     % Renglones intermedios de la matriz A y vector b
     for i = 2:N - 1
         A(i, i - 1) = R;
         A(i, i) = P;
         A(i, i + 1) = Q;
-        b(i) = LadoDerecho(xi + h * (i - 1));
+        b(i) = LadoDerecho(xi + h * i); % Ajuste del punto para el lado derecho
     end
 
     % Renglón final de la matriz A y vector b
-    A(N, N - 1) = R;
+    if N > 1
+        A(N, N - 1) = R;
+    end
     A(N, N) = P;
-    b(N) = LadoDerecho(xi + h * N) - vf * Q;
+    b(N) = LadoDerecho(xi + h * N) - vf * Q; % Ajuste del punto para el lado derecho
 
-    % Resuelve el sistema lineal Ax = b
-    x = inv(A) * b;
+    % Resuelve el sistema lineal Ax = b usando Gauss-Seidel
+    x = gaussSeidel(A, x, b, N, 10000);
 
-    % Prepara la graficación
-    xx = zeros(n, 1);
-    zz = zeros(n, 1);
-    for i = 1:n
-        xx(i) = xi + h * (i - 1);
-        zz(i) = SolucionAnalitica(xx(i));
+    % --- Guardar resultados ---
+    filename = sprintf("resultado_%d.dat", N);
+    fp = fopen(filename, "w");
+    if (fp == -1)
+        fprintf(stderr, "Error: No se pudo abrir el archivo %s para escritura.\n", filename);
+        return;
     end
 
-    yy = zeros(n, 1);
-    yy(1) = vi;         % Condición inicial
+    fprintf(fp, "%10.5f %10.5f\n", xi, vi);
     for i = 1:N
-        yy(i + 1) = x(i); % Solución numérica en los nodos interiores
+        fprintf(fp, "%10.5f %10.5f\n", xi + h * i, x(i));
     end
-    yy(n) = vf;        % Condición final
+    fprintf(fp, "%10.5f %10.5f\n", xf, vf);
+    fclose(fp);
 
-    % Graficar la solución de la Ecuación Diferencial Parcial en 1D
-    figure; % Crea una nueva ventana para la gráfica
-    plot(xx, yy, 'b-', 'DisplayName', 'Solución numérica'); % Solución numérica
-    hold on;
-    plot(xx, zz, 'r--', 'DisplayName', 'Solución analítica'); % Solución analítica
-    xlabel('x'); % Etiqueta del eje x
-    ylabel('U(x)'); % Etiqueta del eje y
-    title('Solución de la Ecuación Diferencial Parcial en 1D'); % Título de la gráfica
-    legend show; % Muestra la leyenda
-    grid on; % Activa la cuadrícula
+
 endfunction
 
 % Lado derecho de la ecuación
@@ -70,16 +67,26 @@ function y = LadoDerecho(x)
     y = -pi^2 * cos(pi * x);
 endfunction
 
-% Solución analítica a la ecuación
+% Solución analítica a la ecuación (no se usa para la medición de tiempos)
 function y = SolucionAnalitica(x)
     y = cos(pi * x);
 endfunction
 
-% Ejecutar la función
-[A, b, x] = diffinita(30);  % Aquí se pasa el valor de n correctamente
+% Función Gauss-Seidel
+function x = gaussSeidel(A_in, x_in, b_in, n, iter_max)
+    x = x_in;
+    for m = 1:iter_max
+        for i = 1:n
+            sum_val = 0;
+            for j = 1:n
+                if i ~= j
+                    sum_val = sum_val + A_in(i, j) * x(j);
+                end
+            end
+            x(i) = (b_in(i) - sum_val) / A_in(i, i);
+        end
+    end
+endfunction
 
-
-
-
-
-
+% La llamada a diffinita con un valor fijo se elimina o comenta
+% diffinita(30);
