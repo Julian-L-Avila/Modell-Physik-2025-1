@@ -25,7 +25,7 @@ def generate_damped_oscillator_data(num_samples=1000,
                                    decay_constant=0.5,
                                    frequency=2.0,
                                    phase=0.0,
-                                   noise_amplitude=0.05):
+                                   noise_amplitude=0.00):
     """
     Generiert synthetische Daten für einen gedämpften harmonischen Oszillator.
 
@@ -139,8 +139,9 @@ history = model.fit(X_train, y_train,
                     epochs=200,
                     batch_size=32,
                     validation_split=0.2,
-                    verbose=1) # verbose=1 zeigt den Trainingsfortschritt an
+                    verbose=10) # verbose=1 zeigt den Trainingsfortschritt an
 
+# %%
 # --- 6. Modell evaluieren ---
 loss, mae = model.evaluate(X_test, y_test, verbose=0)
 print(f"\nVerlust (MSE) auf dem Testset: {loss:.4f}")
