@@ -13,6 +13,21 @@
 # ---
 
 # %%
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.3.4
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %%
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -24,19 +39,93 @@ import pandas as pd
 import csv
 
 # --- Custom Activation Functions ---
-def custom_sechlu(x, alpha=0.2): # Changed alpha as 0.1 is often too small for asinh part
-    return tf.where(x >= 0, tf.math.sech(x), alpha * tf.math.asinh(x))
+def custom_sechlu(x, rho=1.0):
+    """
+    Implementiert eine Sigmoid-weighted Linear Unit basierend auf der Formel:
+    f(x) = x / (1 + exp(-2x / rho))
 
-def custom_cauchylu(x, alpha=1.0):
-    # Based on common forms like alpha * log(1 + (x/alpha)^2)
-    # return alpha * tf.math.log(1 + (x/alpha)**2)
-    # Simpler:
-    return tf.math.log(1 + x**2)
+    Diese Funktion skaliert die Eingabe x mit einer Sigmoid-ähnlichen Kurve.
+    Der Parameter rho steuert die Steilheit der Kurve um den Ursprung.
 
+    Argumente:
+        x (tf.Tensor): Der Eingabe-Tensor.
+        rho (float): Ein anpassbarer Parameter zur Steuerung der Form.
+                     Standardwert ist 1.0.
 
-def custom_laplacelu(x):
-    # Based on forms like sign(x) * (1 - exp(-abs(x)))
-    return tf.sign(x) * (1 - tf.exp(-tf.abs(x)))
+    Rückgabe:
+        tf.Tensor: Der Tensor nach Anwendung der Aktivierungsfunktion.
+    """
+    # Die Formel kann direkt mit TensorFlow-Operationen umgesetzt werden.
+    # tf.sigmoid(y) ist mathematisch äquivalent zu 1 / (1 + exp(-y)).
+    # Hier ist y = 2x / rho.
+    return x * tf.sigmoid(2 * x / rho)
+
+def custom_cauchylu(x, rho=1.0):
+    """
+    Implementiert eine Cauchy-basierte Aktivierungsfunktion mit der Formel:
+    f(x) = x/2 * (1 + 2/pi * arctan(x/rho))
+
+    Diese Funktion skaliert die Eingabe auf eine komplexe, nicht-lineare Weise.
+    Der Parameter rho passt die Breite der zentralen Region an.
+
+    Argumente:
+        x (tf.Tensor): Der Eingabe-Tensor.
+        rho (float): Ein anpassbarer Parameter zur Steuerung der Form.
+                     Standardwert ist 1.0.
+
+    Rückgabe:
+        tf.Tensor: Der Tensor nach Anwendung der Aktivierungsfunktion.
+    """
+    # Wir setzen die Formel Schritt für Schritt um
+    
+    # 1. Berechne den inneren Teil: x / rho
+    scaled_x = x / rho
+    
+    # 2. Berechne den Arcustangens
+    arctan_x = tf.math.atan(scaled_x)
+    
+    # 3. Berechne den gesamten Skalierungsfaktor
+    gating_factor = 0.5 * (1.0 + (2.0 / np.pi) * arctan_x)
+    
+    # 4. Multipliziere mit der ursprünglichen Eingabe x
+    #    (Hinweis: Die Formel wurde leicht umgestellt von x/2 * (...) zu x * (0.5 * (...))
+    #    für eine klarere Implementierung, das Ergebnis ist identisch)
+    return x * gating_factor
+
+def custom_laplacelu(x, rho=1.0):
+    """
+    Implementiert eine Laplace-basierte Aktivierungsfunktion mit der Formel:
+    f(x, rho) = x/2 * (1 + sgn(x) * (1 - exp(-abs(x)/rho)))
+
+    Diese Funktion skaliert die Eingabe x mit einem Faktor, der von der
+    kumulativen Verteilungsfunktion der Laplace-Verteilung inspiriert ist.
+    Der Parameter rho steuert die Steilheit der Kurve.
+
+    Argumente:
+        x (tf.Tensor): Der Eingabe-Tensor.
+        rho (float): Ein anpassbarer Parameter zur Steuerung der Form.
+                     Standardwert ist 1.0.
+
+    Rückgabe:
+        tf.Tensor: Der Tensor nach Anwendung der Aktivierungsfunktion.
+    """
+    # Wir setzen die Formel direkt mit TensorFlow-Funktionen um.
+    
+    # 1. Berechne den Absolutwert von x
+    abs_x = tf.abs(x)
+    
+    # 2. Berechne den exponentiellen Term
+    exp_term = tf.exp(-abs_x / rho)
+    
+    # 3. Berechne den von der Vorzeichenfunktion abhängigen Teil
+    sign_term = tf.sign(x) * (1.0 - exp_term)
+    
+    # 4. Berechne den gesamten Skalierungsfaktor ("Gate")
+    gating_factor = 0.5 * (1.0 + sign_term)
+    
+    # 5. Multipliziere mit der ursprünglichen Eingabe x
+    #    (Umstellung von x/2 * (...) zu x * (0.5 * (...)) für Klarheit)
+    return x * gating_factor
 
 # It's also good practice to register them with Keras if they are going to be used by string name directly in layers
 # However, for this task, we will pass the function objects directly.
