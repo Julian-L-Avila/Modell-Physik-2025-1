@@ -1,330 +1,332 @@
-# --- Third-party Library Imports ---
-import numpy as np
+# ---
+# jupyter:
+#   jupytext:
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.3.4
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %%
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.callbacks import EarlyStopping
+import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+import pandas as pd
+import csv
 
-# --- Custom Activation Function ---
-def x_sech_x(x: tf.Tensor) -> tf.Tensor:
+# --- Custom Activation Functions ---
+def custom_sechlu(x, rho=1.0):
     """
-    Custom activation function: f(x) = x / cosh(x).
-    This function is designed to introduce non-linearity into the network.
-    cosh(x) is always >= 1, so direct division by zero is not a concern here,
-    but tf.math.divide_no_nan provides robustness for general cases.
+    Implementiert eine Sigmoid-weighted Linear Unit basierend auf der Formel:
+    f(x) = x / (1 + exp(-2x / rho))
+
+    Diese Funktion skaliert die Eingabe x mit einer Sigmoid-ähnlichen Kurve.
+    Der Parameter rho steuert die Steilheit der Kurve um den Ursprung.
+
+    Argumente:
+        x (tf.Tensor): Der Eingabe-Tensor.
+        rho (float): Ein anpassbarer Parameter zur Steuerung der Form.
+                     Standardwert ist 1.0.
+
+    Rückgabe:
+        tf.Tensor: Der Tensor nach Anwendung der Aktivierungsfunktion.
     """
-    return tf.math.divide_no_nan(x, tf.math.cosh(x))
+    # Die Formel kann direkt mit TensorFlow-Operationen umgesetzt werden.
+    # tf.sigmoid(y) ist mathematisch äquivalent zu 1 / (1 + exp(-y)).
+    # Hier ist y = 2x / rho.
+    return x * tf.sigmoid(2 * x / rho)
 
-# --- Custom Weight Initializers ---
-class CustomInitializerFirstLayer(tf.keras.initializers.Initializer):
+def custom_cauchylu(x, rho=1.0):
     """
-    Custom weight initializer for the first hidden layer.
-    Initializes weights uniformly within the range [-sqrt(6/33), sqrt(6/33)].
-    This range is derived from Xavier/Glorot initialization principles,
-    where the limit is sqrt(6 / (fan_in + fan_out)).
-    For the first layer: fan_in=1 (input dimension from time data), fan_out=32 (units in this layer).
-    So, limit = sqrt(6 / (1 + 32)) = sqrt(6/33).
+    Implementiert eine Cauchy-basierte Aktivierungsfunktion mit der Formel:
+    f(x) = x/2 * (1 + 2/pi * arctan(x/rho))
+
+    Diese Funktion skaliert die Eingabe auf eine komplexe, nicht-lineare Weise.
+    Der Parameter rho passt die Breite der zentralen Region an.
+
+    Argumente:
+        x (tf.Tensor): Der Eingabe-Tensor.
+        rho (float): Ein anpassbarer Parameter zur Steuerung der Form.
+                     Standardwert ist 1.0.
+
+    Rückgabe:
+        tf.Tensor: Der Tensor nach Anwendung der Aktivierungsfunktion.
     """
-    def __init__(self):
-        super().__init__()
-        # Calculate limits for uniform distribution.
-        limit = np.sqrt(6 / (1 + 32)) 
-        self.minval = -limit
-        self.maxval = limit
+    # Wir setzen die Formel Schritt für Schritt um
+    
+    # 1. Berechne den inneren Teil: x / rho
+    scaled_x = x / rho
+    
+    # 2. Berechne den Arcustangens
+    arctan_x = tf.math.atan(scaled_x)
+    
+    # 3. Berechne den gesamten Skalierungsfaktor
+    gating_factor = 0.5 * (1.0 + (2.0 / np.pi) * arctan_x)
+    
+    # 4. Multipliziere mit der ursprünglichen Eingabe x
+    #    (Hinweis: Die Formel wurde leicht umgestellt von x/2 * (...) zu x * (0.5 * (...))
+    #    für eine klarere Implementierung, das Ergebnis ist identisch)
+    return x * gating_factor
 
-    def __call__(self, shape, dtype=None):
-        # Returns a tensor of the given shape filled with values from the uniform distribution.
-        return tf.random.uniform(
-            shape, minval=self.minval, maxval=self.maxval, dtype=dtype
-        )
-
-    def get_config(self):
-        # Returns a serializable dictionary of arguments used to initialize this initializer.
-        return {"minval": self.minval, "maxval": self.maxval}
-
-class CustomInitializerSecondLayer(tf.keras.initializers.Initializer):
+def custom_laplacelu(x, rho=1.0):
     """
-    Custom weight initializer for the second hidden layer.
-    Initializes weights uniformly within the range [-sqrt(3/32), sqrt(3/32)].
-    This range is also based on Xavier/Glorot initialization:
-    For the second layer: fan_in=32 (units from previous layer), fan_out=32 (units in this layer).
-    So, limit = sqrt(6 / (32 + 32)) = sqrt(6/64) = sqrt(3/32).
+    Implementiert eine Laplace-basierte Aktivierungsfunktion mit der Formel:
+    f(x, rho) = x/2 * (1 + sgn(x) * (1 - exp(-abs(x)/rho)))
+
+    Diese Funktion skaliert die Eingabe x mit einem Faktor, der von der
+    kumulativen Verteilungsfunktion der Laplace-Verteilung inspiriert ist.
+    Der Parameter rho steuert die Steilheit der Kurve.
+
+    Argumente:
+        x (tf.Tensor): Der Eingabe-Tensor.
+        rho (float): Ein anpassbarer Parameter zur Steuerung der Form.
+                     Standardwert ist 1.0.
+
+    Rückgabe:
+        tf.Tensor: Der Tensor nach Anwendung der Aktivierungsfunktion.
     """
-    def __init__(self):
-        super().__init__()
-        # Calculate limits for uniform distribution.
-        limit = np.sqrt(6 / (32 + 32)) # Equivalent to np.sqrt(3/32)
-        self.minval = -limit
-        self.maxval = limit
+    # Wir setzen die Formel direkt mit TensorFlow-Funktionen um.
+    
+    # 1. Berechne den Absolutwert von x
+    abs_x = tf.abs(x)
+    
+    # 2. Berechne den exponentiellen Term
+    exp_term = tf.exp(-abs_x / rho)
+    
+    # 3. Berechne den von der Vorzeichenfunktion abhängigen Teil
+    sign_term = tf.sign(x) * (1.0 - exp_term)
+    
+    # 4. Berechne den gesamten Skalierungsfaktor ("Gate")
+    gating_factor = 0.5 * (1.0 + sign_term)
+    
+    # 5. Multipliziere mit der ursprünglichen Eingabe x
+    #    (Umstellung von x/2 * (...) zu x * (0.5 * (...)) für Klarheit)
+    return x * gating_factor
 
-    def __call__(self, shape, dtype=None):
-        return tf.random.uniform(
-            shape, minval=self.minval, maxval=self.maxval, dtype=dtype
-        )
+# It's also good practice to register them with Keras if they are going to be used by string name directly in layers
+# However, for this task, we will pass the function objects directly.
 
-    def get_config(self):
-        return {"minval": self.minval, "maxval": self.maxval}
-
-# --- Model Definition ---
-def build_model(input_shape=(1,)):
+# --- 1. Daten vorbereiten ---
+def generate_damped_oscillator_data(num_samples=1000,
+                                   amplitude=1.0,
+                                   decay_constant=0.5,
+                                   frequency=2.0,
+                                   phase=0.0,
+                                   noise_amplitude=0.00):
     """
-    Builds and compiles the neural network model for the oscillator.
+    Generiert synthetische Daten für einen gedämpften harmonischen Oszillator.
 
     Args:
-        input_shape (tuple): The shape of the input data (e.g., (1,) for a single time feature).
+        num_samples (int): Anzahl der zu generierenden Datenpunkte.
+        amplitude (float): Anfangsamplitude des Oszillators.
+        decay_constant (float): Die Abklingkonstante (Gamma).
+        frequency (float): Die Winkelfrequenz (Omega).
+        phase (float): Die Phasenverschiebung.
+        noise_amplitude (float): Amplitude des hinzugefügten Rauschens.
 
     Returns:
-        tf.keras.Model: The compiled Keras model.
+        tuple: Ein Tupel von (time_steps, positions)
     """
-    model = Sequential([
-        # First hidden layer:
-        # - 32 units (neurons): Determines the layer's capacity.
-        # - Custom activation function `x_sech_x`: Introduces non-linearity.
-        # - Custom weight initializer `CustomInitializerFirstLayer`: Sets initial weights.
-        # - input_shape: Defines the shape of the input (a single feature, time).
-        Dense(32, activation=x_sech_x, kernel_initializer=CustomInitializerFirstLayer(), input_shape=input_shape, name="hidden_layer_1"),
-        
-        # Second hidden layer:
-        # - 32 units: Further processes features from the previous layer.
-        # - 'tanh' activation function (hyperbolic tangent): Another common non-linear activation.
-        # - Custom weight initializer `CustomInitializerSecondLayer`: Sets initial weights.
-        Dense(32, activation='tanh', kernel_initializer=CustomInitializerSecondLayer(), name="hidden_layer_2"),
-        
-        # Output layer:
-        # - 1 unit: Predicts the oscillator's position (a single continuous value).
-        # - Linear activation (default for Dense layer): Suitable for regression outputs.
-        Dense(1, name="output_layer")
-    ])
-    
-    # Compile the model:
-    # - Optimizer: Adam (Adaptive Moment Estimation) is an efficient and widely used optimizer.
-    #   It adapts learning rates for each parameter.
-    # - Loss function: 'mean_squared_error' (MSE) is suitable for regression tasks.
-    #   It measures the average squared difference between actual and predicted values, penalizing larger errors more.
-    # - Metrics: 'mae' (Mean Absolute Error) provides another measure of prediction accuracy,
-    #   representing the average absolute difference between predictions and actuals. It's less sensitive to outliers than MSE.
-    model.compile(optimizer=Adam(), loss='mean_squared_error', metrics=['mae'])
+    time_steps = np.linspace(0, 10, num_samples) # Zeit von 0 bis 10
+    true_positions = amplitude * np.exp(-decay_constant * time_steps) * \
+                     np.cos(frequency * time_steps + phase)
+    # Rauschen hinzufügen, um das Modell robuster zu machen
+    noise = noise_amplitude * np.random.randn(num_samples)
+    positions = true_positions + noise
+    return time_steps, positions
+
+# Generieren der Daten
+time_data, position_data = generate_damped_oscillator_data()
+
+# Daten für Keras vorbereiten (Input muss 2D sein, Output kann 1D sein)
+# reshape(-1, 1) stellt sicher, dass es eine Spalte und beliebig viele Zeilen hat
+X = time_data.reshape(-1, 1)
+y = position_data
+
+# Daten aufteilen in Trainings- und Testsets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+print(f"Shape von X_train: {X_train.shape}")
+print(f"Shape von y_train: {y_train.shape}")
+print(f"Shape von X_test: {X_test.shape}")
+print(f"Shape von y_test: {y_test.shape}")
+
+# %%
+# --- Main Experiment Loop ---
+neuron_configurations = [[32, 32], [32, 16], [16, 32]]
+# Custom activation functions (custom_sechlu, custom_cauchylu, custom_laplacelu) are already defined globally.
+
+activation_function_map = {
+    'relu': tf.keras.activations.relu,
+    'gelu': tf.keras.activations.gelu,
+    'tanh': tf.keras.activations.tanh,
+    # mish requires TensorFlow >= 2.3 (tf.keras.activations.mish) or from tf_addons.
+    # Assuming the execution environment supports tf.keras.activations.mish.
+    'mish': tf.keras.activations.mish,
+    'sechlu': custom_sechlu,
+    'cauchylu': custom_cauchylu,
+    'laplacelu': custom_laplacelu
+}
+activation_function_names = list(activation_function_map.keys())
+
+results_list = []
+
+# --- 2. Modell erstellen (Anzahl der Schichten und Neuronen) ---
+# Note: build_oscillator_model is defined below this block, which is fine.
+
+def build_oscillator_model(layer1_neurons,
+                           layer1_activation_func,
+                           layer2_neurons,
+                           layer2_activation_func,
+                           learning_rate=0.001,
+                           input_shape=(1,)):
+    """
+    Erstellt ein Keras-Modell für die Vorhersage eines gedämpften Oszillators.
+
+    Args:
+        layer1_neurons (int): Anzahl der Neuronen in der ersten Schicht.
+        layer1_activation_func (callable or str): Aktivierungsfunktion für die erste Schicht.
+        layer2_neurons (int): Anzahl der Neuronen in der zweiten Schicht.
+        layer2_activation_func (callable or str): Aktivierungsfunktion für die zweite Schicht.
+        learning_rate (float): Die Lernrate für den Adam-Optimierer.
+        input_shape (tuple): Input-Shape für die erste Schicht.
+
+    Returns:
+        keras.Model: Das kompilierte Keras-Modell.
+    """
+    model = keras.Sequential()
+
+    # Erste Dense Schicht
+    model.add(layers.Dense(layer1_neurons, activation=layer1_activation_func, input_shape=input_shape))
+
+    # Zweite Dense Schicht
+    model.add(layers.Dense(layer2_neurons, activation=layer2_activation_func))
+
+    # Ausgabeschicht
+    model.add(layers.Dense(1, activation='linear'))
+
+    # --- 3. Optimierer konfigurieren ---
+    optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
+
+    # --- 4. Modell kompilieren ---
+    model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['mean_absolute_error'])
+
     return model
 
-# --- Data Generation Function ---
-def generate_damped_oscillator_data(
-    amplitude: float = 1.0,
-    damping_coefficient: float = 0.1,  # Denoted as gamma (γ) in physics
-    angular_frequency_natural: float = 1.0,  # Denoted as omega_0 (ω₀)
-    phase: float = 0.0, # Denoted as phi (φ)
-    t_end: float = 50.0,
-    num_points: int = 1000,
-):
-    """
-    Generates data for an underdamped harmonic oscillator.
+# --- Konfiguration der Modellparameter (für Einfachheit und Präzision) ---
+# Für "einfachst" und "höchste Präzision" müssen wir ein wenig experimentieren.
+# Beginnen wir mit einem sehr einfachen Setup und passen es bei Bedarf an.
 
-    The formula used for an underdamped oscillator is:
-    x(t) = A * exp(-γ*t) * cos(ω_d*t + φ)
-    where:
-        A = amplitude (initial amplitude)
-        γ = damping_coefficient (controls the rate of decay)
-        ω₀ = angular_frequency_natural (frequency if no damping)
-        φ = phase (initial phase shift)
-        ω_d = sqrt(ω₀² - γ²) is the damped angular frequency (actual oscillation frequency under damping).
+# Parameter für die Modellarchitektur
+# Diese Werte werden nun direkt beim Aufruf von build_oscillator_model übergeben.
+# Beispiel:
+# model = build_oscillator_model(layer1_neurons=32, layer1_activation_func='relu',
+#                                layer2_neurons=32, layer2_activation_func='relu',
+#                                learning_rate=0.001)
 
-    Args:
-        amplitude (float): Initial amplitude of the oscillation.
-        damping_coefficient (float): Damping coefficient (γ). Must be less than
-                                     angular_frequency_natural for underdamped oscillation.
-        angular_frequency_natural (float): Natural angular frequency (ω₀) if there were no damping.
-        phase (float): Initial phase (φ) of the oscillation, in radians.
-        t_end (float): The end time for the simulation (e.g., 50 seconds).
-        num_points (int): The number of data points to generate over the time interval [0, t_end].
 
-    Returns:
-        A tuple containing two numpy arrays:
-        t (numpy.ndarray): Time points from 0 to t_end.
-        x (numpy.ndarray): Position of the oscillator at each corresponding time point.
+# Erstelle das Modell - Beispielaufruf (muss angepasst werden, falls Training direkt hier erfolgen soll)
+# Die alten Parameter NUM_HIDDEN_LAYERS, NEURONS_PER_LAYER, ACTIVATION_FUNCTION, LEARNING_RATE
+# sind nicht mehr direkt für build_oscillator_model relevant in dieser Form.
+# Stattdessen werden die Parameter direkt übergeben.
+# Für den Moment kommentieren wir die Modellerstellung und model.summary() aus,
+# da die Parameter nicht mehr auf die alte Weise definiert sind.
+# model = build_oscillator_model(num_hidden_layers=NUM_HIDDEN_LAYERS,
+#                                neurons_per_layer=NEURONS_PER_LAYER,
+#                                activation_function=ACTIVATION_FUNCTION,
+#                                learning_rate=LEARNING_RATE)
+
+# Zeige eine Zusammenfassung des Modells (Parameteranzahl ist hier sichtbar)
+# model.summary()
+
+# %%
+# --- Main Experiment Loop (continued) ---
+for neurons_config in neuron_configurations:
+    layer1_neurons, layer2_neurons = neurons_config
+    for act_name1 in activation_function_names:
+        for act_name2 in activation_function_names:
+            act_func1 = activation_function_map[act_name1]
+            act_func2 = activation_function_map[act_name2]
+
+            model_name = f"{layer1_neurons}{act_name1.upper()}{layer2_neurons}{act_name2.upper()}"
+            
+            print(f"Building and training model: {model_name}...")
+
+            model = build_oscillator_model(
+                layer1_neurons=layer1_neurons,
+                layer1_activation_func=act_func1,
+                layer2_neurons=layer2_neurons,
+                layer2_activation_func=act_func2
+            )
+            
+            num_params = model.count_params()
+            
+            early_stopping_callback = EarlyStopping(
+                monitor='val_loss',
+                patience=50,  # As per user's original code
+                restore_best_weights=True
+            )
+            
+            # Ensure X_train, y_train, X_test, y_test are available from the data prep step
+            history = model.fit(
+                X_train, y_train,
+                epochs=2000, # As per user's original code
+                validation_data=(X_test, y_test),
+                batch_size=32,
+                callbacks=[early_stopping_callback],
+                verbose=0  # Keep output clean during the loop
+            )
+            
+            actual_epochs = len(history.history['loss'])
+            
+            # Evaluate the model on the test set
+            loss, mae = model.evaluate(X_test, y_test, verbose=0)
+            mse = loss  # model.compile uses 'mean_squared_error' as the loss (already updated)
+            
+            results_list.append([model_name, num_params, actual_epochs, mae, mse])
+            print(f"Completed: {model_name} | Params: {num_params} | Epochs: {actual_epochs} | MAE: {mae:.4f} | MSE: {mse:.4f}")
+            
+            # Optional: Clear session to free memory if many models are trained
+            # tf.keras.backend.clear_session() 
+            # Note: clear_session() also clears custom object registry, so use with care if custom objects are not re-registered.
+            # For this case, it might be okay as models are built fresh each time.
+            # Let's not add clear_session() for now to avoid potential complexities unless memory issues arise.
+
+# --- Save results to TSV ---
+output_tsv_file = 'model_comparison_results.tsv'
+print(f"Writing results to {output_tsv_file}...")
+
+with open(output_tsv_file, 'w', newline='') as tsvfile:
+    writer = csv.writer(tsvfile, delimiter='\t') # Using tab as delimiter
     
-    Raises:
-        ValueError: If damping_coefficient is not less than angular_frequency_natural,
-                    as this would not result in an underdamped oscillation.
-    """
-    t = np.linspace(0, t_end, num_points) # Time vector
-
-    # Condition for underdamped oscillation: natural frequency must be greater than damping coefficient.
-    # If γ >= ω₀, the system is critically damped or overdamped, and won't oscillate sinusoidally.
-    if angular_frequency_natural <= damping_coefficient:
-        raise ValueError(
-            "For underdamped oscillation, natural frequency (angular_frequency_natural) "
-            "must be greater than damping_coefficient."
-        )
-
-    # Calculate damped angular frequency (ω_d)
-    omega_damped = np.sqrt(angular_frequency_natural**2 - damping_coefficient**2)
+    # Write the header
+    writer.writerow(['Name of model', 'parameters', 'epochs', 'mae', 'mse'])
     
-    # Calculate position x(t) using the damped harmonic oscillator equation
-    x = amplitude * np.exp(-damping_coefficient * t) * np.cos(omega_damped * t + phase)
-    
-    return t, x
+    # Write the data rows
+    for row in results_list: # Assuming results_list is populated by the experiment loop
+        writer.writerow(row)
+        
+print(f"Results successfully saved to {output_tsv_file}.")
 
-# --- Plotting Function ---
-def plot_results(time, actual_position, predicted_position, history):
-    """
-    Plots the results of the model training and prediction.
-
-    Args:
-        time (numpy.ndarray): Array of time points.
-        actual_position (numpy.ndarray): Array of actual oscillator positions.
-        predicted_position (numpy.ndarray): Array of predicted oscillator positions from the model.
-        history (tf.keras.callbacks.History): History object from model.fit(), containing training metrics.
-    """
-
-    # Plot 1: Comparison of Actual Data and Neural Network Prediction
-    # This plot shows how well the model's predictions (red dashed line) align with
-    # the true oscillator behavior (blue solid line) over time.
-    # Ideal scenario: The two lines overlap closely.
-    plt.figure(figsize=(12, 6))
-    plt.plot(time, actual_position, label='Actual Data', color='blue', linestyle='-')
-    plt.plot(time, predicted_position, label='NN Prediction', color='red', linestyle='--')
-    plt.title('Damped Harmonic Oscillator: Actual vs. Prediction')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Position')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout() # Adjusts plot parameters for a tight layout.
-    plt.show()
-
-    # Plot 2: Model Training Loss (Mean Squared Error) vs. Epochs
-    # This plot displays the model's loss (error, specifically MSE) on the training set
-    # and optionally on the validation set for each epoch.
-    # Helps to assess if the model is learning effectively and to spot issues like overfitting
-    # (where validation loss starts increasing while training loss continues to decrease).
-    plt.figure(figsize=(10, 5))
-    plt.plot(history.history['loss'], label='Training Loss')
-    if 'val_loss' in history.history: # Check if validation loss is available
-        plt.plot(history.history['val_loss'], label='Validation Loss')
-    plt.title('Model Training Loss vs. Epochs')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss (Mean Squared Error)')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-    # Plot 3: Model Training Mean Absolute Error (MAE) vs. Epochs
-    # This plot shows the MAE on the training and validation sets. MAE is another metric
-    # for regression, representing the average absolute difference between predictions and actual values.
-    # It gives a more direct sense of the average error magnitude.
-    plt.figure(figsize=(10, 5))
-    plt.plot(history.history['mae'], label='Training MAE')
-    if 'val_mae' in history.history: # Check if validation MAE is available
-        plt.plot(history.history['val_mae'], label='Validation MAE')
-    plt.title('Model Training MAE vs. Epochs')
-    plt.xlabel('Epoch')
-    plt.ylabel('Mean Absolute Error')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-    # Plot 4: Difference between Prediction and Actual Data vs. Time (Prediction Error/Residuals)
-    # This plot shows the residuals (prediction - actual) over time. 
-    # It can help identify if the model has systematic errors (e.g., consistently 
-    # over or under-predicting in certain regions, or if errors correlate with time).
-    # Ideally, errors should be small and randomly distributed around zero.
-    difference = predicted_position.flatten() - actual_position.flatten() # Ensure both are 1D arrays for subtraction
-    plt.figure(figsize=(12, 6))
-    plt.plot(time, difference, color='green', label='Prediction Error')
-    plt.title('Prediction Error (NN Prediction - Actual Data) vs. Time')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Position Difference (Error)')
-    plt.axhline(0, color='black', linestyle='--', linewidth=0.8) # Add a zero line for reference
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-# --- Main Execution Block ---
-if __name__ == "__main__":
-    # --- 1. Data Generation ---
-    # Generate time and position data for the damped harmonic oscillator.
-    # These parameters can be adjusted to simulate different oscillator behaviors.
-    TIME_END = 50.0
-    NUM_POINTS = 1000
-    time_data, position_data = generate_damped_oscillator_data(
-        amplitude=1.0,
-        damping_coefficient=0.1, # γ
-        angular_frequency_natural=1.0, # ω₀
-        phase=0.0, # φ
-        t_end=TIME_END,
-        num_points=NUM_POINTS
-    )
-    print(f"Generated {len(time_data)} time data points and {len(position_data)} position data points "
-          f"for t = 0 to {TIME_END}s.")
-
-    # --- 2. Model Building ---
-    # Build the neural network model with the defined architecture and custom components.
-    # input_shape=(1,) because our input is a single feature (time).
-    model = build_model(input_shape=(1,))
-    # Display a summary of the model's architecture (layers, output shapes, number of parameters).
-    print("\nModel Summary:")
-    model.summary()
-
-    # --- 3. Callbacks Definition ---
-    # Callbacks are functions applied at certain stages of the training process (e.g., end of epoch).
-    
-    # EarlyStopping: Stops training when a monitored metric has stopped improving.
-    # - monitor='val_loss': Metric to monitor (validation loss).
-    # - patience=50: Number of epochs with no improvement in 'val_loss' after which training will be stopped.
-    # - restore_best_weights=True: If training stops due to patience, model weights are reverted
-    #   to those from the epoch with the best 'val_loss'.
-    early_stopping = EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True)
-    
-    # ReduceLROnPlateau: Reduces the learning rate when 'val_loss' has stopped improving.
-    # This can help the model make finer adjustments and converge more effectively if it plateaus.
-    # - monitor='val_loss': Metric to monitor.
-    # - factor=0.2: Factor by which the learning rate will be reduced (new_lr = lr * factor).
-    # - patience=20: Number of epochs with no improvement after which learning rate will be reduced.
-    # - min_lr=0.0001: Lower bound on the learning rate; it won't be reduced below this value.
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=20, min_lr=0.0001)
-    
-    callbacks_list = [early_stopping, reduce_lr]
-    print("\nDefined EarlyStopping (patience=50) and ReduceLROnPlateau (patience=20) callbacks.")
-
-    # Reshape time_data for the model input: Keras expects input data to have a shape of (samples, features).
-    # Our time_data is currently (NUM_POINTS,), needs to be (NUM_POINTS, 1).
-    time_data_reshaped = np.reshape(time_data, (-1, 1))
-
-    # --- 4. Model Training ---
-    EPOCHS = 1000 # Maximum number of epochs for training.
-    VALIDATION_SPLIT = 0.2 # Fraction of training data to use for validation.
-    print(f"\nStarting model training for up to {EPOCHS} epochs...")
-    
-    # Train the model using the generated data. The 'history' object will store training metrics.
-    history = model.fit(
-        time_data_reshaped, # Input data (time, reshaped)
-        position_data,      # Target data (oscillator position)
-        epochs=EPOCHS,      # Maximum number of training cycles through the entire dataset.
-                            # EarlyStopping might stop training sooner if val_loss plateaus.
-        validation_split=VALIDATION_SPLIT, # Fraction of the training data set aside for validation (20%).
-                                           # This data is not used for training weights but for evaluating
-                                           # loss and metrics at the end of each epoch. It helps monitor
-                                           # for overfitting to the training data.
-        callbacks=callbacks_list, # List of callbacks to apply during training.
-        verbose=1             # Verbosity mode: 1 = progress bar during training.
-    )
-    print("Model training completed.")
-    final_epoch_count = len(history.history['loss'])
-    print(f"Training finished after {final_epoch_count} epochs.")
-
-
-    # --- 5. Prediction Generation ---
-    # Use the trained model to make predictions on the original time data (reshaped).
-    print("\nGenerating predictions using the trained model...")
-    predicted_position_data = model.predict(time_data_reshaped)
-    print("Predictions generated.")
-
-    # --- 6. Plotting Results ---
-    # Visualize the training process and the model's performance by comparing
-    # actual data with predictions and showing training history.
-    print("\nPlotting results...")
-    plot_results(time_data, position_data, predicted_position_data, history)
-    print("\nScript execution finished.")
+# %%
+# --- (Old sections for single model training, evaluation, and plotting are now replaced by the loop above) ---
+# --- 5. Modell trainieren ---
+# ... (code removed / commented out) ...
+#
+# --- 6. Modell evaluieren ---
+# ... (code removed / commented out) ...
+#
+# --- Vorhersagen machen und visualisieren ---
+# ... (code removed / commented out) ...
+#
+# Optional: Trainingsverlauf plotten
+# ... (code removed / commented out) ...
