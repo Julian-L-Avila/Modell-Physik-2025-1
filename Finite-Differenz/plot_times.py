@@ -1,38 +1,36 @@
-#!/usr/bin/env python3
-import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--input", default="times.csv")
-parser.add_argument("--output", default="images/plot.pdf")
-parser.add_argument("--metric", default="user", choices=["real","user","sys"])
-args = parser.parse_args()
+# Leer los datos del archivo CSV
+try:
+    data = pd.read_csv('times.csv')
+except FileNotFoundError:
+    print("Error: El archivo times.csv no se encontró.")
+    exit(1)
 
-# Asegurar que exista el directorio de imágenes
-os.makedirs(os.path.dirname(args.output), exist_ok=True)
+# Extraer las columnas necesarias
+N = data['N']
+time_f90 = data['time_f90_user']
+time_py = data['time_py_user']
+time_c = data['time_c_user']
+time_octave = data['time_octave_user']
 
-# Leer datos
-df = pd.read_csv(args.input)
-
-# Construir lista de lenguajes presentes en el CSV header
-lang_keys = [col.split('_')[1] for col in df.columns if col.startswith('time_')]
-if not lang_keys:  # Si no hay columnas con prefijo time_, usar todas excepto N
-    lang_keys = [col for col in df.columns if col != 'N']
-    
-labels = {'py':'Python','matlab':'MATLAB','c':'C','f90':'Fortran'}
-
+# Crear la gráfica
 plt.figure(figsize=(10, 6))
-for lang in lang_keys:
-    col_name = f'time_{lang}_{args.metric}' if f'time_{lang}_{args.metric}' in df.columns else lang
-    plt.plot(df['N'], df[col_name], marker='o', label=labels.get(lang, lang))
+plt.plot(N, time_f90, marker='o', linestyle='-', label='Fortran 90')
+plt.plot(N, time_py, marker='s', linestyle='--', label='Python')
+plt.plot(N, time_c, marker='^', linestyle='-.', label='C')
+plt.plot(N, time_octave, marker='d', linestyle=':', label='Octave')
 
-plt.xlabel('Tamaño de malla N')
-plt.ylabel(f'Tiempo de ejecución ({args.metric}) [s]')
-plt.title(f'Tiempo vs N ({args.metric})')
-plt.legend()
+# Añadir etiquetas y título
+plt.xlabel('Tamaño de la malla (N)')
+plt.ylabel('Tiempo de CPU (user) [s]')
+plt.title('Tiempo de Ejecución vs. Tamaño de Malla')
 plt.grid(True)
-plt.tight_layout()
-plt.savefig(args.output)
-print(f"Gráfico guardado como {args.output}")
+plt.legend()
+
+# Guardar la gráfica
+plt.savefig('images/plot.pdf')
+plt.close()
+
+print("Gráfico guardado como images/plot.pdf")

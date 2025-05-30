@@ -102,7 +102,6 @@ def fdm1d():
             for i in range(N):
                 f.write(f"{xi + (i+1) * h:10.5f} {x[i]:10.5f}\n") # changed i to i+1 to match fortran
             f.write(f"{xf:10.5f} {vf:10.5f}\n")
-        print(f"Results saved to {filename}")
     except Exception as e:
         print(f"An error occurred while saving the results: {e}")
 

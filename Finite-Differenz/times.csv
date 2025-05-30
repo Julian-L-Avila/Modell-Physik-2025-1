@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 N,time_f90_user
 5,./measure_times.sh: Zeile 18: -f: Kommando nicht gefunden.
 10,./measure_times.sh: Zeile 18: -f: Kommando nicht gefunden.
@@ -18,3 +19,11 @@ N,time_f90_user
 150,./measure_times.sh: Zeile 18: -f: Kommando nicht gefunden.
 175,./measure_times.sh: Zeile 18: -f: Kommando nicht gefunden.
 200,./measure_times.sh: Zeile 18: -f: Kommando nicht gefunden.
+=======
+N,time_f90_user,time_py_user,time_c_user,time_octave_user
+10,0.00,1.03,0.01,3.56
+20,0.01,1.89,0.01,12.85
+30,0.03,3.09,0.03,28.34
+40,0.04,4.83,0.05,49.72
+50,0.06,7.27,0.06,77.61
+>>>>>>> ab5e17fdb3d7e0c9a09a22ed6447c3abbd3351ab
