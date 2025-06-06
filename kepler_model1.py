@@ -7,11 +7,12 @@ import os
 
 # Import from common_components
 try:
-    from common_components import GM, t_begin, t_end, geom, create_kepler_net, \
-                                x0_val, y0_val, vx0_val, vy0_val, boundary_initial
+    from common_components import GM, t_begin, t_end, geom, \
+                                x0_val, y0_val, vx0_val, vy0_val, boundary_initial, \
+                                create_kepler_net, plot_loss_history # Added generalized net and plot_loss_history
 except ImportError:
     print("Error: common_components.py not found or an import failed.")
-    print("Ensure common_components.py is in the same directory or accessible in PYTHONPATH.")
+    print("Ensure common_components.py is in the same directory or accessible in PYTHONPATH, and contains all required functions.")
     exit()
 
 # 1. Define the ODE System for DeepXDE
@@ -113,28 +114,39 @@ data = dde.data.TimePDE(
 )
 
 # 5. Network, Model Compilation, and Training
-net = create_kepler_net()
+# Using generalized network creation with explicit parameters
+net = create_kepler_net(
+    input_dims=1,
+    output_dims=4,
+    num_hidden_layers=3,
+    num_neurons_per_layer=50,
+    hidden_activation='tanh'
+)
 model = dde.Model(data, net)
 
 # Loss weights: [res1, res2, res3, res4, ic_x, ic_y, ic_vx, ic_vy, bc_data_x, bc_data_y]
-# ODE residuals (4) typically weight 1.
+# ODE residuals (4) weight 1.
 # ICs (4) should be enforced strongly, e.g., weight 100.
 # Data BCs (2) for observed points, e.g., weight 10.
-loss_weights = [1, 1, 1, 1, 100, 100, 100, 100, 10, 10]
+loss_weights = [1, 1, 1, 1, 100, 100, 100, 100, 10, 10] # 10 loss terms
 model.compile("adam", lr=1e-3, loss_weights=loss_weights)
 
-# Create output directory if it doesn't exist
-output_dir_name = "model1_outputs"
-if not os.path.exists(output_dir_name):
-    os.makedirs(output_dir_name)
+# Define model name and output directory
+model_name = "Model1_Cartesian"
+output_dir_model1 = f"model1_cartesian_outputs" # Corrected f-string from description
+os.makedirs(output_dir_model1, exist_ok=True)
 
-print("Starting training for Model 1...")
-# iterations can be 20000-50000. Let's use 30000 for now.
-losshistory, train_state = model.train(iterations=30000, display_every=1000)
+
+print(f"Starting training for {model_name}...")
+# Using 1000 iterations for subtask verification as requested
+losshistory, train_state = model.train(iterations=1000, display_every=200)
 print("Training finished.")
 
-# 6. Plotting and Saving Results
-print("Plotting and saving results...")
+# Plot and save loss history using common function
+plot_loss_history(losshistory, model_name, output_dir=output_dir_model1)
+
+# 6. Plotting and Saving Results (specific to this model)
+print(f"Plotting and saving specific results for {model_name}...")
 t_plot = np.linspace(t_begin, t_end, 200).reshape(-1, 1)
 y_pred_tf = model.predict(t_plot) # y_pred will be [x, y, vx, vy]
 
@@ -157,50 +169,47 @@ plt.scatter(observe_t_data, observe_xy_data[:, 0], label="x_data (Training)", co
 plt.xlabel("Time t")
 plt.ylabel("x position")
 plt.legend()
-plt.title("x(t) Comparison - Model 1")
+plt.title(f"x(t) Comparison - {model_name}")
 plt.grid(True)
 
 plt.subplot(1, 2, 2)
-plt.plot(t_plot, y_pred_p, label="y_pred (PINN)", color='r', linestyle='--')
+plt.plot(t_plot, y_pred_p, label=f"y_pred ({model_name})", color='r', linestyle='--')
 plt.plot(t_plot, y_exact, label="y_exact (SciPy)", color='b', linestyle='-')
 plt.scatter(observe_t_data, observe_xy_data[:, 1], label="y_data (Training)", color='g', marker='o', s=30)
 plt.xlabel("Time t")
-plt.ylabel("y position") # y_pred_p is plotted here
+plt.ylabel("y position")
 plt.legend()
-plt.title("y(t) Comparison - Model 1")
+plt.title(f"y(t) Comparison - {model_name}")
 plt.grid(True)
 
 plt.tight_layout()
-plt.savefig(os.path.join(output_dir_name, "model1_position_time_comparison.png"))
-print(f"Saved position vs time plot to {output_dir_name}/model1_position_time_comparison.png")
-# plt.show() # Comment out for non-interactive execution
+plt.savefig(os.path.join(output_dir_model1, f"{model_name}_position_time_comparison.png"))
+print(f"Saved position vs time plot to {os.path.join(output_dir_model1, f'{model_name}_position_time_comparison.png')}")
+
 
 # Plot 2: Trajectory (y vs x) comparison
 plt.figure(figsize=(8, 8))
-plt.plot(x_pred, y_pred_p, label="Predicted Trajectory (PINN)", color='r', linestyle='--')
+plt.plot(x_pred, y_pred_p, label=f"Predicted Trajectory ({model_name})", color='r', linestyle='--')
 plt.plot(x_exact, y_exact, label="Exact Trajectory (SciPy)", color='b', linestyle='-')
 plt.scatter(observe_xy_data[:, 0], observe_xy_data[:, 1], label="Training Data Points", color='g', marker='o', s=50)
 plt.scatter([x0_val], [y0_val], color='black', marker='X', s=100, label="Start Point")
 plt.xlabel("x position")
 plt.ylabel("y position")
 plt.legend()
-plt.title("Trajectory Comparison (y vs x) - Model 1")
-plt.axis('equal') # Equal scaling for x and y axes
+plt.title(f"Trajectory Comparison (y vs x) - {model_name}")
+plt.axis('equal')
 plt.grid(True)
-plt.savefig(os.path.join(output_dir_name, "model1_trajectory_comparison.png"))
-print(f"Saved trajectory plot to {output_dir_name}/model1_trajectory_comparison.png")
-# plt.show() # Comment out
+plt.savefig(os.path.join(output_dir_model1, f"{model_name}_trajectory_comparison.png"))
+print(f"Saved trajectory plot to {os.path.join(output_dir_model1, f'{model_name}_trajectory_comparison.png')}")
 
-# Save loss history and training state
-# Note: isplot=True might try to open a window, set to False for pure saving in headless environments
-dde.saveplot(losshistory, train_state, issave=True, isplot=False, output_dir=output_dir_name)
-print(f"Saved loss history and training state to {output_dir_name}")
 
-print("Model 1 script finished.")
+# Save DDE's default loss history and training state files
+# Note: isplot=False for non-interactive environments for dde.saveplot
+dde.saveplot(losshistory, train_state, issave=True, isplot=False, output_dir=output_dir_model1)
+print(f"Saved DDE training data to {output_dir_model1}")
+
+print(f"{model_name} script finished.")
 
 if __name__ == "__main__":
-    # This main block is not strictly necessary as the script runs top-to-bottom
-    # but can be used for specific main-guard actions if needed later.
-    print("Running kepler_model1.py as main script.")
-    # All operations are already global, so they will execute when the script is run.
+    print(f"Running {model_name}.py as main script.")
     pass

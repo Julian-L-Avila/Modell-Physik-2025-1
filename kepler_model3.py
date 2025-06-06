@@ -7,12 +7,28 @@ import os
 
 # Import from common_components
 try:
-    from common_components import GM, t_begin, t_end, geom, create_kepler_net, \
-                                x0_val, y0_val, vx0_val, vy0_val, boundary_initial
-except ImportError:
-    print("Error: common_components.py not found or an import failed.")
-    print("Ensure common_components.py is in the same directory or accessible in PYTHONPATH.")
+    # Ensure all necessary components are imported, including the new ones
+    from common_components import GM, t_begin, t_end, geom, \
+                                x0_val, y0_val, vx0_val, vy0_val, boundary_initial, \
+                                create_kepler_net, plot_loss_history # Updated imports
+except ImportError as e:
+    print(f"Error importing from common_components.py: {e}")
+    print("Ensure common_components.py is in the same directory or accessible in PYTHONPATH, and contains all required functions.")
     exit()
+
+# Calculate E0 as a global TensorFlow constant
+# Using values imported from common_components
+r0_sq_g = x0_val**2 + y0_val**2
+epsilon_g = 1e-8 # Small epsilon for stability in E0 calculation
+# Ensure r0_stable_g is not zero if GM is non-zero and r0_sq_g is zero.
+# max with epsilon_g**2 for sqrt, then max with epsilon_g for division.
+r0_stable_g_sqrt_arg = max(r0_sq_g, epsilon_g**2)
+r0_stable_g = np.sqrt(r0_stable_g_sqrt_arg)
+E0_denominator = max(r0_stable_g, epsilon_g) # prevent division by zero if r0_stable_g is zero
+
+E0_global_val = 0.5 * (vx0_val**2 + vy0_val**2) - GM / E0_denominator
+E0_tf_global = tf.constant(E0_global_val, dtype=tf.float32)
+
 
 # 1. Define the Energy-Conserving ODE System for DeepXDE
 def kepler_energy_ode_system(t_in, y_vec):
@@ -48,8 +64,10 @@ def kepler_energy_ode_system(t_in, y_vec):
     # dde.grad.jacobian(ys, xs, i=0, j=0) computes d ys[:,i] / d xs[:,j]
     # If E_val is (N,1) and t_in is (N,1), we want d E_val[:,0] / d t_in[:,0]
     # which is dde.grad.jacobian(E_val, t_in, i=0, j=0) or simply dde.grad.jacobian(E_val, t_in)
-    dE_dt = dde.grad.jacobian(E_val, t_in)
-    res3 = dE_dt # This should be enforced to be 0
+    # dE_dt = dde.grad.jacobian(E_val, t_in)
+    # res3 = dE_dt # This should be enforced to be 0
+    # MODIFIED: Enforce E(t) - E0 = 0
+    res3 = E_val - E0_tf_global
 
     return [res1, res2, res3]
 
@@ -99,26 +117,37 @@ data = dde.data.TimePDE(
 )
 
 # 5. Network, Model Compilation, and Training
-net = create_kepler_net()
+model_name = "Model3_Cartesian_EnergyE0"
+output_dir_model3 = f"{model_name}_outputs"
+os.makedirs(output_dir_model3, exist_ok=True)
+
+net = create_kepler_net(
+    input_dims=1,
+    output_dims=4,
+    num_hidden_layers=3,
+    num_neurons_per_layer=50,
+    hidden_activation='tanh'
+)
 model = dde.Model(data, net)
 
-# Loss weights: [res_kin_x, res_kin_y, res_dEdt, ic_x, ic_y, ic_vx, ic_vy, bc_data_x, bc_data_y]
-# ODE residuals (3): kinematic x, kinematic y, dE/dt. dE/dt might need higher weight.
+# Loss weights: [res_kin_x, res_kin_y, res_E_minus_E0, ic_x, ic_y, ic_vx, ic_vy, bc_data_x, bc_data_y]
+# ODE residuals (3): kinematic x, kinematic y, E-E0.
 # ICs (4): x0, y0, vx0, vy0.
 # Data BCs (2): x_data, y_data.
-loss_weights = [1, 1, 10,  100, 100, 100, 100,  10, 10]
+loss_weights = [1, 1, 10,  100, 100, 100, 100,  10, 10] # Same number of terms as before
 model.compile("adam", lr=1e-3, loss_weights=loss_weights)
 
-output_dir_name_m3 = "model3_outputs"
-if not os.path.exists(output_dir_name_m3):
-    os.makedirs(output_dir_name_m3)
 
-print("Starting training for Model 3 (Energy Conservation)...")
-losshistory, train_state = model.train(iterations=40000, display_every=1000)
-print("Training finished for Model 3.")
+print(f"Starting training for {model_name} (Conserving E(t) = E0)...")
+# Using 1000 iterations for subtask verification
+losshistory, train_state = model.train(iterations=1000, display_every=200)
+print(f"Training finished for {model_name}.")
+
+# Plot and save loss history using common function
+plot_loss_history(losshistory, model_name, output_dir=output_dir_model3)
 
 # 6. Plotting and Saving Results
-print("Plotting and saving results for Model 3...")
+print(f"Plotting and saving results for {model_name}...")
 t_plot = np.linspace(t_begin, t_end, 200).reshape(-1, 1)
 y_pred_model3_tf = model.predict(t_plot)
 
@@ -143,72 +172,69 @@ plt.scatter(observe_t_data, observe_xy_data[:, 0], label="x_data (Training)", co
 plt.xlabel("Time t")
 plt.ylabel("x position")
 plt.legend()
-plt.title("x(t) Comparison - Model 3")
+plt.title(f"x(t) Comparison - {model_name}")
 plt.grid(True)
 
 plt.subplot(1, 2, 2)
-plt.plot(t_plot, y_pred_m3_p, label="y_pred (PINN M3)", color='r', linestyle='--')
+plt.plot(t_plot, y_pred_m3_p, label=f"y_pred ({model_name})", color='r', linestyle='--')
 plt.plot(t_plot, y_exact_m3, label="y_exact (SciPy)", color='b', linestyle='-')
 plt.scatter(observe_t_data, observe_xy_data[:, 1], label="y_data (Training)", color='g', marker='o', s=30)
 plt.xlabel("Time t")
 plt.ylabel("y position")
 plt.legend()
-plt.title("y(t) Comparison - Model 3")
+plt.title(f"y(t) Comparison - {model_name}")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig(os.path.join(output_dir_name_m3, "model3_position_time_comparison.png"))
-print(f"Saved position vs time plot to {output_dir_name_m3}/model3_position_time_comparison.png")
+plt.savefig(os.path.join(output_dir_model3, f"{model_name}_position_time_comparison.png"))
+print(f"Saved position vs time plot to {os.path.join(output_dir_model3, f'{model_name}_position_time_comparison.png')}")
 
 # Plot 2: Trajectory Comparison
 plt.figure(figsize=(8, 8))
-plt.plot(x_pred_m3, y_pred_m3_p, label="Predicted Trajectory (PINN M3)", color='r', linestyle='--')
+plt.plot(x_pred_m3, y_pred_m3_p, label=f"Predicted Trajectory ({model_name})", color='r', linestyle='--')
 plt.plot(x_exact_m3, y_exact_m3, label="Exact Trajectory (SciPy)", color='b', linestyle='-')
 plt.scatter(observe_xy_data[:, 0], observe_xy_data[:, 1], label="Training Data Points", color='g', marker='o', s=50)
 plt.scatter([x0_val], [y0_val], color='black', marker='X', s=100, label="Start Point")
 plt.xlabel("x position")
 plt.ylabel("y position")
 plt.legend()
-plt.title("Trajectory Comparison (y vs x) - Model 3")
+plt.title(f"Trajectory Comparison (y vs x) - {model_name}")
 plt.axis('equal')
 plt.grid(True)
-plt.savefig(os.path.join(output_dir_name_m3, "model3_trajectory_comparison.png"))
-print(f"Saved trajectory plot to {output_dir_name_m3}/model3_trajectory_comparison.png")
+plt.savefig(os.path.join(output_dir_model3, f"{model_name}_trajectory_comparison.png"))
+print(f"Saved trajectory plot to {os.path.join(output_dir_model3, f'{model_name}_trajectory_comparison.png')}")
 
-# Plot 3: Energy Conservation
+# Plot 3: Energy Conservation (E(t) vs E0)
 # Calculate E_pred from PINN solution
 r_sq_pred_m3 = x_pred_m3**2 + y_pred_m3_p**2
-r_stable_pred_m3 = np.sqrt(np.maximum(r_sq_pred_m3, 1e-8**2)) # Use numpy for numpy arrays
-pot_E_pred_m3 = -GM / np.maximum(r_stable_pred_m3, 1e-8)
+epsilon_plot = 1e-8**2 # Epsilon for plotting, consistent with E0 calc
+r_stable_pred_m3 = np.sqrt(np.maximum(r_sq_pred_m3, epsilon_plot))
+pot_E_pred_m3 = -GM / np.maximum(r_stable_pred_m3, np.sqrt(epsilon_plot)) # ensure denominator > 0
 kin_E_pred_m3 = 0.5 * (vx_pred_m3**2 + vy_pred_m3**2)
-E_pred_m3 = kin_E_pred_m3 + pot_E_pred_m3
+E_pred_vals = kin_E_pred_m3 + pot_E_pred_m3
 
-# Calculate E_exact from SciPy solution
-r_sq_exact_m3 = x_exact_m3**2 + y_exact_m3**2
-r_stable_exact_m3 = np.sqrt(np.maximum(r_sq_exact_m3, 1e-8**2))
-pot_E_exact_m3 = -GM / np.maximum(r_stable_exact_m3, 1e-8)
-kin_E_exact_m3 = 0.5 * (vx_exact_m3**2 + vy_exact_m3**2)
-E_exact_m3 = kin_E_exact_m3 + pot_E_exact_m3
 
 plt.figure(figsize=(10, 6))
-plt.plot(t_plot, E_pred_m3, label="Energy_predicted (PINN M3)", color='r', linestyle='--')
-plt.plot(t_plot, E_exact_m3, label="Energy_exact (SciPy)", color='b', linestyle='-')
+plt.plot(t_plot, E_pred_vals, label=f"Predicted Energy E(t) ({model_name})", color='r', linestyle='--')
+plt.axhline(y=E0_global_val, color='b', linestyle='-', label=f"Initial Energy E0 = {E0_global_val:.4f}")
 plt.xlabel("Time t")
 plt.ylabel("Total Energy E")
-plt.title("Energy Conservation Comparison - Model 3")
+plt.title(f"Energy Conservation (E(t) vs E0) - {model_name}")
 plt.legend()
 plt.grid(True)
-# Optional: Set y-axis limits if energy fluctuates wildly in initial training for PINN
-initial_exact_energy = E_exact_m3[0]
-plt.ylim(initial_exact_energy - abs(initial_exact_energy * 0.5), initial_exact_energy + abs(initial_exact_energy * 0.5)) # Zoom if needed
-plt.savefig(os.path.join(output_dir_name_m3, "model3_energy_conservation.png"))
-print(f"Saved energy conservation plot to {output_dir_name_m3}/model3_energy_conservation.png")
+# Optional: Set y-axis limits for better visualization if E_pred_vals varies significantly
+y_min = min(np.min(E_pred_vals), E0_global_val)
+y_max = max(np.max(E_pred_vals), E0_global_val)
+padding = (y_max - y_min) * 0.1 if (y_max - y_min) > 1e-6 else 0.1
+plt.ylim(y_min - padding, y_max + padding)
+plt.savefig(os.path.join(output_dir_model3, f"{model_name}_energy_vs_initial_E0.png"))
+print(f"Saved energy conservation plot to {os.path.join(output_dir_model3, f'{model_name}_energy_vs_initial_E0.png')}")
 
 # Save DDE logs
-dde.saveplot(losshistory, train_state, issave=True, isplot=False, output_dir=output_dir_name_m3)
-print(f"Saved loss history and training state to {output_dir_name_m3}")
+dde.saveplot(losshistory, train_state, issave=True, isplot=False, output_dir=output_dir_model3)
+print(f"Saved DDE training data to {output_dir_model3}")
 
-print("Model 3 script finished.")
+print(f"{model_name} script finished.")
 
 if __name__ == "__main__":
-    print("Running kepler_model3.py as main script.")
+    print(f"Running {model_name}.py as main script.")
     pass
