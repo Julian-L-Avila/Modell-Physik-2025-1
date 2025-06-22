@@ -1,0 +1,13 @@
+NOMBRE DEL ARCHIVO DONDE SE GUARDARA LOS DATOS
+ww
+PARAMETROS FISICOS
+Npar=    108          numero de particulas
+rho=     0.8442       densidad de particulas 
+T=       2.8          temperatura 
+PARAMETROS DINAMICOS
+dt=      0.001        incremento de tiempo [<=1]
+Ndm=     1000         numero de pasos (tmax=dt*Ndm)
+neq=     500          numero de pasos para equilibrar
+div=     5            Cada cuanto se guarda las coordenadas (frames=Ndm/div)
+REINICIACION
+reini=   0            0 escala velocidades a la Tini;  1 mantiene la Tini
